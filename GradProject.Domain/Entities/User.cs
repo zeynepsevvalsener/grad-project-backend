@@ -14,6 +14,6 @@ namespace GradProject.Domain.Entities
         public UserRole Role { get; set; } = UserRole.User;
 
         // 1-1 Profile
-        public Profile Profile { get; set; } = null!;
+        public Profile? Profile { get; set; }
     }
 }
