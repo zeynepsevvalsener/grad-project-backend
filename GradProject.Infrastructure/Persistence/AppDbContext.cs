@@ -27,6 +27,9 @@ namespace GradProject.Infrastructure.Persistence
 
                 e.Property(u => u.Role)
                  .HasConversion<int>();
+
+                // User -> Profile optional
+                e.Navigation(u => u.Profile).IsRequired(false);
             });
 
             // PROFILE
