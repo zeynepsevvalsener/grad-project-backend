@@ -11,6 +11,9 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
+using DotNetEnv;
+DotNetEnv.Env.Load();
+
 var builder = WebApplication.CreateBuilder(args);
 
 // DbContext (PostgreSQL)
@@ -23,6 +26,7 @@ AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Jwt"));
 
 // DI - Services
+builder.Services.AddSingleton<GradProject.Api.Services.StravaApiService>();
 builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
@@ -107,5 +111,13 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+// DIŞ SERVİSE TEK SEFERLİK STRAVA İSTEK
+using (var scope = app.Services.CreateScope())
+{
+    var stravaService = scope.ServiceProvider.GetRequiredService<GradProject.Api.Services.StravaApiService>();
+    var result = await stravaService.GetAthleteInfo();
+    Console.WriteLine(result);
+}
 
 app.Run();
