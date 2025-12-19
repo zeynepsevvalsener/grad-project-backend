@@ -115,9 +115,9 @@ app.MapControllers();
 // DIŞ SERVİSE TEK SEFERLİK STRAVA İSTEK
 using (var scope = app.Services.CreateScope())
 {
-    var stravaService = scope.ServiceProvider.GetRequiredService<GradProject.Api.Services.StravaApiService>();
-    var result = await stravaService.GetAthleteInfo();
-    Console.WriteLine(result);
+    // var stravaService = scope.ServiceProvider.GetRequiredService<GradProject.Api.Services.StravaApiService>();
+    // var result = await stravaService.GetAthleteInfo();
+    // Console.WriteLine(result);
 }
 
 app.Run();
