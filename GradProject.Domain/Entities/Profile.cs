@@ -15,6 +15,8 @@ namespace GradProject.Domain.Entities
         public DateTime? DateOfBirth { get; set; }
 
         public Gender Gender { get; set; } = Gender.Unknown;
+        public ActivityLevel ActivityLevel { get; set; } = ActivityLevel.Sedentary;
+
 
         public decimal? Height { get; set; }   // cm
         public decimal? Weight { get; set; }   // kg
