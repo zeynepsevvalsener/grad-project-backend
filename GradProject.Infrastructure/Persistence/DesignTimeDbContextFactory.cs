@@ -1,7 +1,7 @@
+using GradProject.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
 using Microsoft.Extensions.Configuration;
-using System.IO;
 
 namespace GradProject.Infrastructure.Persistence
 {
@@ -9,21 +9,27 @@ namespace GradProject.Infrastructure.Persistence
     {
         public AppDbContext CreateDbContext(string[] args)
         {
-            var basePath = Directory.GetCurrentDirectory();
-            var builder = new ConfigurationBuilder()
-               .SetBasePath(basePath)
-               .AddJsonFile("appsettings.json", optional: true)
-               .AddEnvironmentVariables();
+            // EF Tools bazen DOTNET_ENVIRONMENT ile çalýþýr, bazen ASPNETCORE_ENVIRONMENT
+            var environment =
+                Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
+                ?? Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")
+                ?? "Production";
 
-            var configuration = builder.Build();
+            var basePath = Path.Combine(Directory.GetCurrentDirectory(), "../GradProject.Api");
+
+            var configuration = new ConfigurationBuilder()
+                .SetBasePath(basePath)
+                .AddJsonFile("appsettings.json", optional: false, reloadOnChange: false)
+                .AddJsonFile($"appsettings.{environment}.json", optional: true, reloadOnChange: false)
+                .AddEnvironmentVariables()
+                .Build();
+
+            var connectionString = configuration.GetConnectionString("Default");
 
             var optionsBuilder = new DbContextOptionsBuilder<AppDbContext>();
-            optionsBuilder.UseNpgsql(configuration.GetConnectionString("Default"));
+            optionsBuilder.UseNpgsql(connectionString);
 
             return new AppDbContext(optionsBuilder.Options);
         }
     }
 }
-
-
-
