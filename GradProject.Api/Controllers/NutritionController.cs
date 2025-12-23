@@ -13,11 +13,16 @@ namespace GradProject.Api.Controllers
     public class NutritionController : ControllerBase
     {
         private readonly INutritionCalculationService _nutritionCalculationService;
+        private readonly INutritionTargetsService _nutritionTargetsService;
 
-        public NutritionController(INutritionCalculationService nutritionCalculationService)
+
+        public NutritionController(INutritionCalculationService nutritionCalculationService,
+                INutritionTargetsService nutritionTargetsService)
         {
             _nutritionCalculationService = nutritionCalculationService;
+            _nutritionTargetsService = nutritionTargetsService;
         }
+
 
         [HttpGet("tdee")]
         public async Task<ActionResult<TdeeResultDto>> GetMyTdee(CancellationToken ct)
@@ -37,5 +42,14 @@ namespace GradProject.Api.Controllers
 
             return userId;
         }
+
+        [HttpGet("targets")]
+        public async Task<ActionResult<DailyTargetsDto>> GetMyDailyTargets(CancellationToken ct)
+        {
+            var userId = GetUserIdOrThrow();
+            var result = await _nutritionTargetsService.GetMyDailyTargetsAsync(userId, ct);
+            return Ok(result);
+        }
+
     }
 }

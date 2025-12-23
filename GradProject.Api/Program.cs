@@ -41,6 +41,8 @@ builder.Services.AddSingleton<ITdeeCalculator, TdeeCalculator>();
 builder.Services.AddScoped<INutritionCalculationService, NutritionCalculationService>();
 builder.Services.AddSingleton<IBmiCalculator, BmiCalculator>();
 builder.Services.AddScoped<IProfileService, ProfileService>();
+builder.Services.AddScoped<INutritionTargetsService, NutritionTargetsService>();
+
 
 
 
