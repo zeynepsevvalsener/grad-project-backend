@@ -1,17 +1,22 @@
-using System.Text;
-using System.Text.Json.Serialization;
+using DotNetEnv;
 using FluentValidation;
 using GradProject.Api.Middlewares;
 using GradProject.Application.Interfaces;
+using GradProject.Application.Interfaces.Nutrition;
 using GradProject.Application.Utilities;
 using GradProject.Application.Validators.Auth;
 using GradProject.Infrastructure.Persistence;
 using GradProject.Infrastructure.Services;
+using GradProject.Infrastructure.Services.Nutrition;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using System.Text;
+using System.Text.Json.Serialization;
+using Microsoft.OpenApi.Models;
 
-using DotNetEnv;
+
+
 DotNetEnv.Env.Load();
 
 var builder = WebApplication.CreateBuilder(args);
@@ -30,6 +35,8 @@ builder.Services.AddSingleton<GradProject.Api.Services.StravaApiService>();
 builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IFoodService, FoodService>();
+builder.Services.AddScoped<IConsumedFoodService, ConsumedFoodService>();
 
 //  Exception middleware DI
 builder.Services.AddTransient<ExceptionHandlingMiddleware>();
@@ -45,7 +52,42 @@ builder.Services.AddControllers()
 builder.Services.AddValidatorsFromAssemblyContaining<RegisterRequestDtoValidator>();
 
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "GradProject API",
+        Version = "v1"
+    });
+
+    // 🔐 JWT Bearer definition
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = "JWT Authorization header. Example: \"Bearer {token}\""
+    });
+
+    // 🔐 Apply Bearer globally
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            Array.Empty<string>()
+        }
+    });
+});
+
 
 // JWT Auth
 var jwt = builder.Configuration.GetSection("Jwt").Get<JwtOptions>()
