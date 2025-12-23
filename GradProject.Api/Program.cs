@@ -37,6 +37,12 @@ builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IFoodService, FoodService>();
 builder.Services.AddScoped<IConsumedFoodService, ConsumedFoodService>();
+builder.Services.AddSingleton<ITdeeCalculator, TdeeCalculator>();
+builder.Services.AddScoped<INutritionCalculationService, NutritionCalculationService>();
+builder.Services.AddSingleton<IBmiCalculator, BmiCalculator>();
+builder.Services.AddScoped<IProfileService, ProfileService>();
+
+
 
 //  Exception middleware DI
 builder.Services.AddTransient<ExceptionHandlingMiddleware>();
