@@ -42,6 +42,7 @@ builder.Services.AddScoped<INutritionCalculationService, NutritionCalculationSer
 builder.Services.AddSingleton<IBmiCalculator, BmiCalculator>();
 builder.Services.AddScoped<IProfileService, ProfileService>();
 builder.Services.AddScoped<INutritionTargetsService, NutritionTargetsService>();
+builder.Services.AddScoped<IFoodSearchService, FoodSearchService>();
 
 
 
@@ -149,7 +150,11 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
+
 
 //  Exception handling
 app.UseMiddleware<ExceptionHandlingMiddleware>();

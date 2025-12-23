@@ -1,4 +1,5 @@
 ﻿using FluentValidation;
+using GradProject.Application.DTOs.Common;
 using GradProject.Application.DTOs.Nutrition;
 using GradProject.Application.Interfaces.Nutrition;
 using Microsoft.AspNetCore.Authorization;
@@ -14,15 +15,18 @@ namespace GradProject.Api.Controllers
         private readonly IFoodService _foodService;
         private readonly IValidator<CreateFoodRequestDto> _createValidator;
         private readonly IValidator<UpdateFoodRequestDto> _updateValidator;
+        private readonly IFoodSearchService _foodSearchService;
+
 
         public FoodsController(
             IFoodService foodService,
             IValidator<CreateFoodRequestDto> createValidator,
-            IValidator<UpdateFoodRequestDto> updateValidator)
+            IValidator<UpdateFoodRequestDto> updateValidator, IFoodSearchService foodSearchService)
         {
             _foodService = foodService;
             _createValidator = createValidator;
             _updateValidator = updateValidator;
+            _foodSearchService = foodSearchService;
         }
 
         [HttpGet]
@@ -77,6 +81,17 @@ namespace GradProject.Api.Controllers
         {
             var ok = await _foodService.DeleteAsync(id, ct);
             return ok ? NoContent() : NotFound();
+        }
+
+        [HttpGet("search")]
+        public async Task<ActionResult<PagedResultDto<FoodSearchItemDto>>> Search(
+             [FromQuery] string? q,
+             [FromQuery] int page = 1,
+             [FromQuery] int pageSize = 20,
+             CancellationToken ct = default)
+        {
+            var result = await _foodSearchService.SearchAsync(q, page, pageSize, ct);
+            return Ok(result);
         }
     }
 }
