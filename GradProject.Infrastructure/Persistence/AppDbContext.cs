@@ -10,6 +10,7 @@ namespace GradProject.Infrastructure.Persistence
         public DbSet<User> Users => Set<User>();
         public DbSet<Profile> Profiles => Set<Profile>();
         public DbSet<RunningActivity> RunningActivities => Set<RunningActivity>();
+        public DbSet<RunActivity> RunActivities => Set<RunActivity>();
 
         public DbSet<Food> Foods => Set<Food>();
         public DbSet<ConsumedFood> ConsumedFoods => Set<ConsumedFood>();
@@ -241,6 +242,59 @@ namespace GradProject.Infrastructure.Persistence
                 e.ToTable(t =>
                 {
                     t.HasCheckConstraint("CK_ConsumedFoods_PortionG_Positive", "\"PortionG\" > 0");
+                });
+            });
+
+            // RUN ACTIVITY
+            modelBuilder.Entity<RunActivity>(e =>
+            {
+                e.HasKey(r => r.Id);
+
+                e.Property(r => r.ExternalId)
+                 .IsRequired()
+                 .HasMaxLength(100);
+
+                e.Property(r => r.RunDate)
+                 .IsRequired();
+
+                e.Property(r => r.StartDateTime)
+                 .IsRequired();
+
+                e.Property(r => r.DurationSeconds)
+                 .IsRequired();
+
+                e.Property(r => r.DistanceMeters)
+                 .IsRequired();
+
+                e.Property(r => r.Source)
+                 .IsRequired()
+                 .HasMaxLength(50);
+
+                // Unique constraint: UserId + ExternalId
+                e.HasIndex(r => new { r.UserId, r.ExternalId })
+                 .IsUnique()
+                 .HasDatabaseName("IX_RunActivities_UserId_ExternalId");
+
+                // Index on UserId for filtering by user
+                e.HasIndex(r => r.UserId)
+                 .HasDatabaseName("IX_RunActivities_UserId");
+
+                // Index on RunDate for date-based queries
+                e.HasIndex(r => r.RunDate)
+                 .HasDatabaseName("IX_RunActivities_RunDate");
+
+                // Foreign key relationship with User
+                e.HasOne(r => r.User)
+                 .WithMany()
+                 .HasForeignKey(r => r.UserId)
+                 .IsRequired()
+                 .OnDelete(DeleteBehavior.Cascade);
+
+                // Check constraints for non-negative values
+                e.ToTable(t =>
+                {
+                    t.HasCheckConstraint("CK_RunActivities_DurationSeconds_NonNegative", "\"DurationSeconds\" >= 0");
+                    t.HasCheckConstraint("CK_RunActivities_DistanceMeters_NonNegative", "\"DistanceMeters\" >= 0");
                 });
             });
         }

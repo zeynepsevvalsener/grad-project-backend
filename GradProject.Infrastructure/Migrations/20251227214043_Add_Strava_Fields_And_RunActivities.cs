@@ -7,11 +7,41 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace GradProject.Infrastructure.Migrations
 {
     /// <inheritdoc />
-    public partial class Add_Foods_And_ConsumedFoods : Migration
+    public partial class Add_Strava_Fields_And_RunActivities : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.AddColumn<string>(
+                name: "StravaAccessToken",
+                table: "Users",
+                type: "text",
+                nullable: true);
+
+            migrationBuilder.AddColumn<long>(
+                name: "StravaAthleteId",
+                table: "Users",
+                type: "bigint",
+                nullable: true);
+
+            migrationBuilder.AddColumn<DateTime>(
+                name: "StravaConnectedAt",
+                table: "Users",
+                type: "timestamp without time zone",
+                nullable: true);
+
+            migrationBuilder.AddColumn<string>(
+                name: "StravaRefreshToken",
+                table: "Users",
+                type: "text",
+                nullable: true);
+
+            migrationBuilder.AddColumn<DateTime>(
+                name: "StravaTokenExpiresAt",
+                table: "Users",
+                type: "timestamp without time zone",
+                nullable: true);
+
             migrationBuilder.AddColumn<int>(
                 name: "ActivityLevel",
                 table: "Profiles",
@@ -49,6 +79,34 @@ namespace GradProject.Infrastructure.Migrations
                     table.CheckConstraint("CK_Foods_ProteinG_NonNegative", "\"ProteinG\" >= 0");
                     table.CheckConstraint("CK_Foods_SodiumMg_NonNegative", "\"SodiumMg\" >= 0");
                     table.CheckConstraint("CK_Foods_SugarG_NonNegative", "\"SugarG\" >= 0");
+                });
+
+            migrationBuilder.CreateTable(
+                name: "RunActivities",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    UserId = table.Column<int>(type: "integer", nullable: false),
+                    ExternalId = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
+                    RunDate = table.Column<DateOnly>(type: "date", nullable: false),
+                    StartDateTime = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    DurationSeconds = table.Column<int>(type: "integer", nullable: false),
+                    DistanceMeters = table.Column<float>(type: "real", nullable: false),
+                    BurnedCalories = table.Column<int>(type: "integer", nullable: true),
+                    Source = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_RunActivities", x => x.Id);
+                    table.CheckConstraint("CK_RunActivities_DistanceMeters_NonNegative", "\"DistanceMeters\" >= 0");
+                    table.CheckConstraint("CK_RunActivities_DurationSeconds_NonNegative", "\"DurationSeconds\" >= 0");
+                    table.ForeignKey(
+                        name: "FK_RunActivities_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
@@ -105,6 +163,22 @@ namespace GradProject.Infrastructure.Migrations
                 table: "Foods",
                 column: "Name",
                 unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RunActivities_RunDate",
+                table: "RunActivities",
+                column: "RunDate");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RunActivities_UserId",
+                table: "RunActivities",
+                column: "UserId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RunActivities_UserId_ExternalId",
+                table: "RunActivities",
+                columns: new[] { "UserId", "ExternalId" },
+                unique: true);
         }
 
         /// <inheritdoc />
@@ -114,7 +188,30 @@ namespace GradProject.Infrastructure.Migrations
                 name: "ConsumedFoods");
 
             migrationBuilder.DropTable(
+                name: "RunActivities");
+
+            migrationBuilder.DropTable(
                 name: "Foods");
+
+            migrationBuilder.DropColumn(
+                name: "StravaAccessToken",
+                table: "Users");
+
+            migrationBuilder.DropColumn(
+                name: "StravaAthleteId",
+                table: "Users");
+
+            migrationBuilder.DropColumn(
+                name: "StravaConnectedAt",
+                table: "Users");
+
+            migrationBuilder.DropColumn(
+                name: "StravaRefreshToken",
+                table: "Users");
+
+            migrationBuilder.DropColumn(
+                name: "StravaTokenExpiresAt",
+                table: "Users");
 
             migrationBuilder.DropColumn(
                 name: "ActivityLevel",

@@ -1,5 +1,11 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using GradProject.Api.Services;
+using GradProject.Application.Interfaces;
+using GradProject.Infrastructure.Persistence;
+using GradProject.Infrastructure.Services;
+using Microsoft.EntityFrameworkCore;
 using System.Threading.Tasks;
 
 namespace GradProject.Api.Controllers
@@ -9,10 +15,14 @@ namespace GradProject.Api.Controllers
     public class StravaController : ControllerBase
     {
         private readonly StravaApiService _stravaService;
+        private readonly IRunActivityService _runActivityService;
+        private readonly AppDbContext _db;
 
-        public StravaController(StravaApiService stravaService)
+        public StravaController(StravaApiService stravaService, IRunActivityService runActivityService, AppDbContext db)
         {
             _stravaService = stravaService;
+            _runActivityService = runActivityService;
+            _db = db;
         }
 
         [HttpGet("connect")]
@@ -31,25 +41,78 @@ namespace GradProject.Api.Controllers
             if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(state))
                 return BadRequest("Eksik parametre");
 
-            var token = await _stravaService.ExchangeCodeForTokenAsync(code, state);
-            if (token.StartsWith("Token alma hatası"))
-                return StatusCode(500, token);
+            if (!int.TryParse(state, out var userId))
+                return BadRequest("Geçersiz userId");
 
-            // Test amaçlı hemen veri çekip bağlantının başarılı olduğunu bildir
-            var athleteInfo = await _stravaService.GetAthleteInfo(state);
-            if (athleteInfo.StartsWith("Hata"))
-                return StatusCode(500, "Token alındı, ama api isteği başarısız: " + athleteInfo);
+            // Exchange code for token
+            var tokenResponse = await _stravaService.ExchangeCodeForTokenAsync(code);
+            if (tokenResponse == null)
+                return StatusCode(500, "Token alma hatası");
 
-            return Ok("Strava bağlantısı başarılı, veri: " + athleteInfo);
+            // Save token to User entity
+            var user = await _db.Users.FindAsync(userId);
+            if (user == null)
+                return NotFound("User not found");
+
+            user.StravaAccessToken = tokenResponse.AccessToken;
+            user.StravaRefreshToken = tokenResponse.RefreshToken;
+            user.StravaTokenExpiresAt = tokenResponse.ExpiresAt;
+            user.StravaAthleteId = tokenResponse.AthleteId;
+            user.StravaConnectedAt = DateTime.UtcNow;
+
+            await _db.SaveChangesAsync();
+
+            return Ok(new { message = "Strava bağlantısı başarılı", athleteId = tokenResponse.AthleteId });
         }
 
         [HttpGet("me")]
-        public async Task<IActionResult> Me([FromQuery] string userId)
+        [Authorize]
+        public async Task<IActionResult> Me(CancellationToken ct)
         {
-            if (string.IsNullOrEmpty(userId))
-                return BadRequest("userId zorunlu");
-            var result = await _stravaService.GetAthleteInfo(userId);
+            var userId = GetUserIdOrThrow();
+            
+            var user = await _db.Users
+                .AsNoTracking()
+                .FirstOrDefaultAsync(u => u.Id == userId, ct);
+            
+            if (user == null)
+                return NotFound("User not found");
+            
+            if (string.IsNullOrWhiteSpace(user.StravaAccessToken))
+                return BadRequest("Strava connection is required");
+            
+            var result = await _stravaService.GetAthleteInfo(user.StravaAccessToken);
             return Content(result, "application/json");
+        }
+
+        [HttpGet("runs/latest")]
+        [Authorize]
+        public async Task<IActionResult> FetchLatestRun(CancellationToken ct)
+        {
+            var userId = GetUserIdOrThrow();
+            var result = await _runActivityService.FetchLatestStravaRunAsync(userId, ct);
+
+            if (!result.Success)
+            {
+                if (result.RequiresStravaConnection)
+                {
+                    return BadRequest(new { message = result.ErrorMessage, requiresStravaConnection = true });
+                }
+                return BadRequest(new { message = result.ErrorMessage });
+            }
+
+            return Ok(result.RunActivity);
+        }
+
+        private int GetUserIdOrThrow()
+        {
+            var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub)
+                      ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
+
+            if (string.IsNullOrWhiteSpace(sub) || !int.TryParse(sub, out var userId))
+                throw new UnauthorizedAccessException("Invalid token.");
+
+            return userId;
         }
     }
 }
