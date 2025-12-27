@@ -14,13 +14,16 @@ namespace GradProject.Api.Controllers
     {
         private readonly INutritionCalculationService _nutritionCalculationService;
         private readonly INutritionTargetsService _nutritionTargetsService;
+        private readonly IDailyIntakeAggregationService _dailyIntakeAggregationService;
 
 
         public NutritionController(INutritionCalculationService nutritionCalculationService,
-                INutritionTargetsService nutritionTargetsService)
+                INutritionTargetsService nutritionTargetsService,
+                IDailyIntakeAggregationService dailyIntakeAggregationService)
         {
             _nutritionCalculationService = nutritionCalculationService;
             _nutritionTargetsService = nutritionTargetsService;
+            _dailyIntakeAggregationService = dailyIntakeAggregationService;
         }
 
 
@@ -49,6 +52,32 @@ namespace GradProject.Api.Controllers
             var userId = GetUserIdOrThrow();
             var result = await _nutritionTargetsService.GetMyDailyTargetsAsync(userId, ct);
             return Ok(result);
+        }
+
+        /// <summary>
+        /// Aggregates daily intake for a specific date and updates/creates DailySummary
+        /// </summary>
+        [HttpPost("aggregate-intake")]
+        public async Task<IActionResult> AggregateDailyIntake(
+            [FromQuery] DateOnly date,
+            CancellationToken ct)
+        {
+            var userId = GetUserIdOrThrow();
+            await _dailyIntakeAggregationService.AggregateDailyIntakeAsync(userId, date, ct);
+            return Ok(new { message = $"Daily intake aggregated successfully for {date:yyyy-MM-dd}" });
+        }
+
+        /// <summary>
+        /// Gets the daily summary (aggregated intake) for a specific date
+        /// </summary>
+        [HttpGet("daily-summary")]
+        public async Task<ActionResult<DailySummaryDto>> GetDailySummary(
+            [FromQuery] DateOnly date,
+            CancellationToken ct)
+        {
+            var userId = GetUserIdOrThrow();
+            var summary = await _dailyIntakeAggregationService.GetDailySummaryAsync(userId, date, ct);
+            return summary == null ? NotFound(new { message = $"No daily summary found for {date:yyyy-MM-dd}" }) : Ok(summary);
         }
 
     }

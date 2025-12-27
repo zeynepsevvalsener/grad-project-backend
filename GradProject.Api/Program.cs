@@ -43,6 +43,7 @@ builder.Services.AddSingleton<IBmiCalculator, BmiCalculator>();
 builder.Services.AddScoped<IProfileService, ProfileService>();
 builder.Services.AddScoped<INutritionTargetsService, NutritionTargetsService>();
 builder.Services.AddScoped<IFoodSearchService, FoodSearchService>();
+builder.Services.AddScoped<IDailyIntakeAggregationService, DailyIntakeAggregationService>();
 
 
 
