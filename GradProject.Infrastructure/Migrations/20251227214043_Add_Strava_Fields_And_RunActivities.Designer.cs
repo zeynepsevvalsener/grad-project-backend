@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace GradProject.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20251222193447_Add_Foods_And_ConsumedFoods")]
-    partial class Add_Foods_And_ConsumedFoods
+    [Migration("20251227214043_Add_Strava_Fields_And_RunActivities")]
+    partial class Add_Strava_Fields_And_RunActivities
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -196,6 +196,62 @@ namespace GradProject.Infrastructure.Migrations
                     b.ToTable("Profiles");
                 });
 
+            modelBuilder.Entity("GradProject.Domain.Entities.RunActivity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("BurnedCalories")
+                        .HasColumnType("integer");
+
+                    b.Property<float>("DistanceMeters")
+                        .HasColumnType("real");
+
+                    b.Property<int>("DurationSeconds")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ExternalId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateOnly>("RunDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTimeOffset>("StartDateTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RunDate")
+                        .HasDatabaseName("IX_RunActivities_RunDate");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("IX_RunActivities_UserId");
+
+                    b.HasIndex("UserId", "ExternalId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_RunActivities_UserId_ExternalId");
+
+                    b.ToTable("RunActivities", t =>
+                        {
+                            t.HasCheckConstraint("CK_RunActivities_DistanceMeters_NonNegative", "\"DistanceMeters\" >= 0");
+
+                            t.HasCheckConstraint("CK_RunActivities_DurationSeconds_NonNegative", "\"DurationSeconds\" >= 0");
+                        });
+                });
+
             modelBuilder.Entity("GradProject.Domain.Entities.RunningActivity", b =>
                 {
                     b.Property<int>("Id")
@@ -299,6 +355,21 @@ namespace GradProject.Infrastructure.Migrations
                     b.Property<int>("Role")
                         .HasColumnType("integer");
 
+                    b.Property<string>("StravaAccessToken")
+                        .HasColumnType("text");
+
+                    b.Property<long?>("StravaAthleteId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("StravaConnectedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("StravaRefreshToken")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("StravaTokenExpiresAt")
+                        .HasColumnType("timestamp without time zone");
+
                     b.HasKey("Id");
 
                     b.HasIndex("Email")
@@ -331,6 +402,17 @@ namespace GradProject.Infrastructure.Migrations
                     b.HasOne("GradProject.Domain.Entities.User", "User")
                         .WithOne("Profile")
                         .HasForeignKey("GradProject.Domain.Entities.Profile", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("GradProject.Domain.Entities.RunActivity", b =>
+                {
+                    b.HasOne("GradProject.Domain.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 

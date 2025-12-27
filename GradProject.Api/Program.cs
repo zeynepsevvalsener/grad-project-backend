@@ -31,7 +31,7 @@ AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Jwt"));
 
 // DI - Services
-builder.Services.AddSingleton<GradProject.Api.Services.StravaApiService>();
+builder.Services.AddSingleton<GradProject.Infrastructure.Services.StravaApiService>();
 builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
@@ -43,6 +43,7 @@ builder.Services.AddSingleton<IBmiCalculator, BmiCalculator>();
 builder.Services.AddScoped<IProfileService, ProfileService>();
 builder.Services.AddScoped<INutritionTargetsService, NutritionTargetsService>();
 builder.Services.AddScoped<IFoodSearchService, FoodSearchService>();
+builder.Services.AddScoped<IRunActivityService, RunActivityService>();
 
 
 
@@ -170,7 +171,7 @@ app.MapControllers();
 // DIŞ SERVİSE TEK SEFERLİK STRAVA İSTEK
 using (var scope = app.Services.CreateScope())
 {
-    // var stravaService = scope.ServiceProvider.GetRequiredService<GradProject.Api.Services.StravaApiService>();
+    // var stravaService = scope.ServiceProvider.GetRequiredService<GradProject.Infrastructure.Services.StravaApiService>();
     // var result = await stravaService.GetAthleteInfo();
     // Console.WriteLine(result);
 }
