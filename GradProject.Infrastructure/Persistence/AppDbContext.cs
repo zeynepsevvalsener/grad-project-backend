@@ -14,12 +14,12 @@ namespace GradProject.Infrastructure.Persistence
 
         public DbSet<Food> Foods => Set<Food>();
         public DbSet<ConsumedFood> ConsumedFoods => Set<ConsumedFood>();
+        public DbSet<DailySummary> DailySummaries => Set<DailySummary>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
 
-            // USER
             modelBuilder.Entity<User>(e =>
             {
                 e.HasKey(u => u.Id);
@@ -33,11 +33,9 @@ namespace GradProject.Infrastructure.Persistence
                 e.Property(u => u.Role)
                  .HasConversion<int>();
 
-                // User -> Profile optional
                 e.Navigation(u => u.Profile).IsRequired(false);
             });
 
-            // PROFILE
             modelBuilder.Entity<Profile>(e =>
             {
                 e.HasKey(p => p.Id);
@@ -49,7 +47,6 @@ namespace GradProject.Infrastructure.Persistence
                 e.Property(p => p.LastName)
                  .HasMaxLength(100);
 
-                // Decimal precision (PostgreSQL → numeric(5,2))
                 e.Property(p => p.Height)
                  .HasPrecision(5, 2);
 
@@ -62,23 +59,19 @@ namespace GradProject.Infrastructure.Persistence
                 e.Property(p => p.ActivityLevel)
                  .HasConversion<int>();
 
-                // 1-1 ilişki
                 e.HasOne(p => p.User)
                  .WithOne(u => u.Profile)
                  .HasForeignKey<Profile>(p => p.UserId)
                  .IsRequired()
                  .OnDelete(DeleteBehavior.Cascade);
 
-                // Her user için tek profile
                 e.HasIndex(p => p.UserId).IsUnique();
             });
 
-            // RUNNING ACTIVITY
             modelBuilder.Entity<RunningActivity>(e =>
             {
                 e.HasKey(r => r.Id);
 
-                // Required string fields
                 e.Property(r => r.ExternalActivityId)
                  .IsRequired()
                  .HasMaxLength(100);
@@ -91,7 +84,6 @@ namespace GradProject.Infrastructure.Persistence
                  .IsRequired()
                  .HasMaxLength(50);
 
-                // Required date fields
                 e.Property(r => r.StartTime)
                  .IsRequired();
 
@@ -101,7 +93,6 @@ namespace GradProject.Infrastructure.Persistence
                 e.Property(r => r.UpdatedAt)
                  .IsRequired();
 
-                // Numeric fields with precision for distance/speed/elevation
                 e.Property(r => r.DistanceMeters)
                  .IsRequired();
 
@@ -117,29 +108,23 @@ namespace GradProject.Infrastructure.Persistence
                 e.Property(r => r.AverageSpeed)
                  .IsRequired();
 
-                // AverageHeartRate is optional (nullable by default)
 
-                // Unique constraint: UserId + ExternalActivityId
                 e.HasIndex(r => new { r.UserId, r.ExternalActivityId })
                  .IsUnique()
                  .HasDatabaseName("IX_RunningActivities_UserId_ExternalActivityId");
 
-                // Index on UserId for filtering by user
                 e.HasIndex(r => r.UserId)
                  .HasDatabaseName("IX_RunningActivities_UserId");
 
-                // Index on StartTime for date-based queries
                 e.HasIndex(r => r.StartTime)
                  .HasDatabaseName("IX_RunningActivities_StartTime");
 
-                // Foreign key relationship with User
                 e.HasOne(r => r.User)
                  .WithMany()
                  .HasForeignKey(r => r.UserId)
                  .IsRequired()
                  .OnDelete(DeleteBehavior.Cascade);
 
-                // Check constraints for non-negative values
                 e.ToTable(t =>
                 {
                     t.HasCheckConstraint("CK_RunningActivities_DistanceMeters_NonNegative", "\"DistanceMeters\" >= 0");
@@ -150,7 +135,6 @@ namespace GradProject.Infrastructure.Persistence
                 });
             });
 
-            // FOOD
             modelBuilder.Entity<Food>(e =>
             {
                 e.HasKey(f => f.Id);
@@ -167,11 +151,9 @@ namespace GradProject.Infrastructure.Persistence
                  .IsRequired()
                  .HasMaxLength(50);
 
-                // PostgreSQL text[] mapping
                 e.Property(f => f.Aliases)
                  .HasColumnType("text[]");
 
-                // Nutrition values per 100g - precision
                 e.Property(f => f.Kcal).HasPrecision(8, 2);
                 e.Property(f => f.ProteinG).HasPrecision(8, 2);
                 e.Property(f => f.FatG).HasPrecision(8, 2);
@@ -181,7 +163,6 @@ namespace GradProject.Infrastructure.Persistence
                 e.Property(f => f.SodiumMg).HasPrecision(10, 2);
                 e.Property(f => f.DefaultPortionG).HasPrecision(8, 2);
 
-                // Indexes
                 e.HasIndex(f => f.Name)
                  .IsUnique()
                  .HasDatabaseName("IX_Foods_Name");
@@ -189,7 +170,6 @@ namespace GradProject.Infrastructure.Persistence
                 e.HasIndex(f => f.Category)
                  .HasDatabaseName("IX_Foods_Category");
 
-                // Check constraints
                 e.ToTable(t =>
                 {
                     t.HasCheckConstraint("CK_Foods_Kcal_NonNegative", "\"Kcal\" >= 0");
@@ -203,7 +183,6 @@ namespace GradProject.Infrastructure.Persistence
                 });
             });
 
-            // CONSUMED FOOD
             modelBuilder.Entity<ConsumedFood>(e =>
             {
                 e.HasKey(cf => cf.Id);
@@ -215,7 +194,6 @@ namespace GradProject.Infrastructure.Persistence
                  .IsRequired()
                  .HasPrecision(10, 2);
 
-                // Indexes
                 e.HasIndex(cf => cf.UserId)
                  .HasDatabaseName("IX_ConsumedFoods_UserId");
 
@@ -225,7 +203,6 @@ namespace GradProject.Infrastructure.Persistence
                 e.HasIndex(cf => cf.FoodId)
                  .HasDatabaseName("IX_ConsumedFoods_FoodId");
 
-                // Relationships
                 e.HasOne(cf => cf.User)
                  .WithMany()
                  .HasForeignKey(cf => cf.UserId)
@@ -238,7 +215,6 @@ namespace GradProject.Infrastructure.Persistence
                  .IsRequired()
                  .OnDelete(DeleteBehavior.Restrict);
 
-                // Checks
                 e.ToTable(t =>
                 {
                     t.HasCheckConstraint("CK_ConsumedFoods_PortionG_Positive", "\"PortionG\" > 0");
@@ -295,6 +271,39 @@ namespace GradProject.Infrastructure.Persistence
                 {
                     t.HasCheckConstraint("CK_RunActivities_DurationSeconds_NonNegative", "\"DurationSeconds\" >= 0");
                     t.HasCheckConstraint("CK_RunActivities_DistanceMeters_NonNegative", "\"DistanceMeters\" >= 0");
+            modelBuilder.Entity<DailySummary>(e =>
+            {
+                e.HasKey(ds => ds.Id);
+
+                e.Property(ds => ds.Date)
+                 .IsRequired();
+
+                e.Property(ds => ds.TotalProtein).HasPrecision(10, 2);
+                e.Property(ds => ds.TotalCarbs).HasPrecision(10, 2);
+                e.Property(ds => ds.TotalFat).HasPrecision(10, 2);
+
+                e.HasIndex(ds => new { ds.UserId, ds.Date })
+                 .IsUnique()
+                 .HasDatabaseName("IX_DailySummaries_UserId_Date");
+
+                e.HasIndex(ds => ds.UserId)
+                 .HasDatabaseName("IX_DailySummaries_UserId");
+
+                e.HasIndex(ds => ds.Date)
+                 .HasDatabaseName("IX_DailySummaries_Date");
+
+                e.HasOne(ds => ds.User)
+                 .WithMany()
+                 .HasForeignKey(ds => ds.UserId)
+                 .IsRequired()
+                 .OnDelete(DeleteBehavior.Cascade);
+
+                e.ToTable(t =>
+                {
+                    t.HasCheckConstraint("CK_DailySummaries_TotalIntakeCalories_NonNegative", "\"TotalIntakeCalories\" >= 0");
+                    t.HasCheckConstraint("CK_DailySummaries_TotalProtein_NonNegative", "\"TotalProtein\" >= 0");
+                    t.HasCheckConstraint("CK_DailySummaries_TotalCarbs_NonNegative", "\"TotalCarbs\" >= 0");
+                    t.HasCheckConstraint("CK_DailySummaries_TotalFat_NonNegative", "\"TotalFat\" >= 0");
                 });
             });
         }
