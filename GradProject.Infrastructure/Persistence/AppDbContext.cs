@@ -271,6 +271,9 @@ namespace GradProject.Infrastructure.Persistence
                 {
                     t.HasCheckConstraint("CK_RunActivities_DurationSeconds_NonNegative", "\"DurationSeconds\" >= 0");
                     t.HasCheckConstraint("CK_RunActivities_DistanceMeters_NonNegative", "\"DistanceMeters\" >= 0");
+                });
+            });
+
             modelBuilder.Entity<DailySummary>(e =>
             {
                 e.HasKey(ds => ds.Id);
