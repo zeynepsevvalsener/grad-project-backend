@@ -14,6 +14,9 @@ using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using System.Text.Json.Serialization;
 using Microsoft.OpenApi.Models;
+using GradProject.Application.Interfaces.Nutrition.AI;
+using GradProject.Infrastructure.Services.Nutrition.AI;
+
 
 
 
@@ -45,6 +48,7 @@ builder.Services.AddScoped<INutritionTargetsService, NutritionTargetsService>();
 builder.Services.AddScoped<IFoodSearchService, FoodSearchService>();
 builder.Services.AddScoped<IRunActivityService, RunActivityService>();
 builder.Services.AddScoped<IDailyIntakeAggregationService, DailyIntakeAggregationService>();
+builder.Services.AddScoped<IMealParsingService, MealParsingService>();
 
 
 
