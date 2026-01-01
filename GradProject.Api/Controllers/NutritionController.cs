@@ -18,7 +18,6 @@ namespace GradProject.Api.Controllers
         private readonly INutritionTargetsService _nutritionTargetsService;
         private readonly IDailyIntakeAggregationService _dailyIntakeAggregationService;
         private readonly IMealParsingService _mealParsingService;
-        private readonly IMealParsingService _mealParsingService;
 
         public NutritionController(
         INutritionCalculationService nutritionCalculationService,
