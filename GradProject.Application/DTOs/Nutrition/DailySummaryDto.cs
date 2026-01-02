@@ -8,6 +8,7 @@ namespace GradProject.Application.DTOs.Nutrition
         public decimal TotalProtein { get; set; }
         public decimal TotalCarbs { get; set; }
         public decimal TotalFat { get; set; }
+        public int? BurnedCalories { get; set; }
     }
 }
 
