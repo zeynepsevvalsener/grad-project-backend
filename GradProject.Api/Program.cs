@@ -49,6 +49,7 @@ builder.Services.AddScoped<IFoodSearchService, FoodSearchService>();
 builder.Services.AddScoped<IRunActivityService, RunActivityService>();
 builder.Services.AddScoped<IDailyIntakeAggregationService, DailyIntakeAggregationService>();
 builder.Services.AddScoped<IMealParsingService, MealParsingService>();
+builder.Services.AddScoped<IMealService, MealService>();
 
 
 
