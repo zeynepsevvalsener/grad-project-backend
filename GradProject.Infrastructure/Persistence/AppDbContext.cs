@@ -14,6 +14,8 @@ namespace GradProject.Infrastructure.Persistence
 
         public DbSet<Food> Foods => Set<Food>();
         public DbSet<ConsumedFood> ConsumedFoods => Set<ConsumedFood>();
+        public DbSet<Meal> Meals => Set<Meal>();
+        public DbSet<MealFood> MealFoods => Set<MealFood>();
         public DbSet<DailySummary> DailySummaries => Set<DailySummary>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -307,6 +309,79 @@ namespace GradProject.Infrastructure.Persistence
                     t.HasCheckConstraint("CK_DailySummaries_TotalProtein_NonNegative", "\"TotalProtein\" >= 0");
                     t.HasCheckConstraint("CK_DailySummaries_TotalCarbs_NonNegative", "\"TotalCarbs\" >= 0");
                     t.HasCheckConstraint("CK_DailySummaries_TotalFat_NonNegative", "\"TotalFat\" >= 0");
+                });
+            });
+
+            // MEAL
+            modelBuilder.Entity<Meal>(e =>
+            {
+                e.HasKey(m => m.Id);
+
+                e.Property(m => m.MealType)
+                 .HasConversion<int>();
+
+                e.Property(m => m.RawText)
+                 .HasMaxLength(1000);
+
+                e.Property(m => m.Notes)
+                 .HasMaxLength(500);
+
+                e.Property(m => m.LoggedAt)
+                 .IsRequired();
+
+                e.Property(m => m.CreatedAt)
+                 .IsRequired();
+
+                e.HasIndex(m => m.UserId)
+                 .HasDatabaseName("IX_Meals_UserId");
+
+                e.HasIndex(m => m.LoggedAt)
+                 .HasDatabaseName("IX_Meals_LoggedAt");
+
+                e.HasIndex(m => new { m.UserId, m.LoggedAt })
+                 .HasDatabaseName("IX_Meals_UserId_LoggedAt");
+
+                e.HasOne(m => m.User)
+                 .WithMany()
+                 .HasForeignKey(m => m.UserId)
+                 .IsRequired()
+                 .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            // MEAL FOOD
+            modelBuilder.Entity<MealFood>(e =>
+            {
+                e.HasKey(mf => mf.Id);
+
+                e.Property(mf => mf.Quantity)
+                 .IsRequired()
+                 .HasPrecision(10, 2);
+
+                e.Property(mf => mf.Unit)
+                 .IsRequired()
+                 .HasMaxLength(50);
+
+                e.HasIndex(mf => mf.MealId)
+                 .HasDatabaseName("IX_MealFoods_MealId");
+
+                e.HasIndex(mf => mf.FoodId)
+                 .HasDatabaseName("IX_MealFoods_FoodId");
+
+                e.HasOne(mf => mf.Meal)
+                 .WithMany(m => m.MealFoods)
+                 .HasForeignKey(mf => mf.MealId)
+                 .IsRequired()
+                 .OnDelete(DeleteBehavior.Cascade);
+
+                e.HasOne(mf => mf.Food)
+                 .WithMany()
+                 .HasForeignKey(mf => mf.FoodId)
+                 .IsRequired()
+                 .OnDelete(DeleteBehavior.Restrict);
+
+                e.ToTable(t =>
+                {
+                    t.HasCheckConstraint("CK_MealFoods_Quantity_Positive", "\"Quantity\" > 0");
                 });
             });
         }
