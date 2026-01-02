@@ -41,26 +41,41 @@ namespace GradProject.Infrastructure.Services
                 { "client_id", _clientId },
                 { "client_secret", _clientSecret },
                 { "code", code },
-                { "grant_type", "authorization_code" }
+                { "grant_type", "authorization_code" },
+                { "redirect_uri", _redirectUri }
             };
-            var response = await _httpClient.PostAsync(
-                "https://www.strava.com/oauth/token",
-                new FormUrlEncodedContent(payload)
-            );
-
-            var content = await response.Content.ReadAsStringAsync();
-            if (!response.IsSuccessStatusCode)
-                return null;
-
-            var json = JsonDocument.Parse(content).RootElement;
             
-            return new StravaTokenResponse
+            try
             {
-                AccessToken = json.GetProperty("access_token").GetString()!,
-                RefreshToken = json.TryGetProperty("refresh_token", out var refreshToken) ? refreshToken.GetString() : null,
-                ExpiresAt = json.TryGetProperty("expires_at", out var expiresAt) ? DateTimeOffset.FromUnixTimeSeconds(expiresAt.GetInt64()).DateTime : null,
-                AthleteId = json.TryGetProperty("athlete", out var athlete) && athlete.TryGetProperty("id", out var athleteId) ? athleteId.GetInt64() : null
-            };
+                var response = await _httpClient.PostAsync(
+                    "https://www.strava.com/oauth/token",
+                    new FormUrlEncodedContent(payload)
+                );
+
+                var content = await response.Content.ReadAsStringAsync();
+                
+                if (!response.IsSuccessStatusCode)
+                {
+                    // Log error for debugging
+                    Console.WriteLine($"Strava token exchange failed. Status: {response.StatusCode}, Response: {content}");
+                    return null;
+                }
+
+                var json = JsonDocument.Parse(content).RootElement;
+                
+                return new StravaTokenResponse
+                {
+                    AccessToken = json.GetProperty("access_token").GetString()!,
+                    RefreshToken = json.TryGetProperty("refresh_token", out var refreshToken) ? refreshToken.GetString() : null,
+                    ExpiresAt = json.TryGetProperty("expires_at", out var expiresAt) ? DateTimeOffset.FromUnixTimeSeconds(expiresAt.GetInt64()).DateTime : null,
+                    AthleteId = json.TryGetProperty("athlete", out var athlete) && athlete.TryGetProperty("id", out var athleteId) ? athleteId.GetInt64() : null
+                };
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Exception during Strava token exchange: {ex.Message}");
+                return null;
+            }
         }
 
         public class StravaTokenResponse
