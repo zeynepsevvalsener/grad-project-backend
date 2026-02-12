@@ -9,6 +9,7 @@ namespace GradProject.Infrastructure.Services.Nutrition
     public class MealService : IMealService
     {
         private readonly AppDbContext _db;
+        private readonly IDailyIntakeAggregationService _dailyAgg;
 
         // Unit conversion dictionaries (reused from MealParsingService)
         private static readonly Dictionary<string, decimal> UnitToGramMultiplier = new(StringComparer.OrdinalIgnoreCase)
@@ -44,9 +45,10 @@ namespace GradProject.Infrastructure.Services.Nutrition
             "adet", "tane"
         };
 
-        public MealService(AppDbContext db)
+        public MealService(AppDbContext db, IDailyIntakeAggregationService dailyAgg)
         {
             _db = db;
+            _dailyAgg = dailyAgg;
         }
 
         public async Task<IReadOnlyList<MealResponseDto>> GetByDateAsync(int userId, DateOnly date, CancellationToken ct = default)
@@ -144,6 +146,10 @@ namespace GradProject.Infrastructure.Services.Nutrition
                 await _db.SaveChangesAsync(ct);
             }
 
+            // Trigger daily intake aggregation for the affected date
+            var createdDate = DateOnly.FromDateTime(request.LoggedAt);
+            await _dailyAgg.AggregateDailyIntakeAsync(userId, createdDate, ct);
+
             // Reload with includes for response
             var createdMeal = await _db.Meals
                 .Include(m => m.MealFoods)
@@ -161,6 +167,8 @@ namespace GradProject.Infrastructure.Services.Nutrition
 
             if (meal == null)
                 return null;
+
+            var oldDate = DateOnly.FromDateTime(meal.LoggedAt);
 
             // Validate foods exist if provided
             if (request.Foods != null && request.Foods.Any())
@@ -224,6 +232,13 @@ namespace GradProject.Infrastructure.Services.Nutrition
             }
 
             await _db.SaveChangesAsync(ct);
+
+            // Trigger daily intake aggregation for the affected date(s)
+            var newDate = DateOnly.FromDateTime(meal.LoggedAt);
+            await _dailyAgg.AggregateDailyIntakeAsync(userId, newDate, ct);
+
+            if (oldDate != newDate)
+                await _dailyAgg.AggregateDailyIntakeAsync(userId, oldDate, ct);
 
             // Reload with includes for response
             var updatedMeal = await _db.Meals
@@ -314,4 +329,3 @@ namespace GradProject.Infrastructure.Services.Nutrition
         }
     }
 }
-
