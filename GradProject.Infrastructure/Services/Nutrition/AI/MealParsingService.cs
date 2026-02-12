@@ -1,5 +1,6 @@
-using System.Globalization;
-using System.Text.RegularExpressions;
+using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using GradProject.Application.DTOs.Nutrition.AI;
 using GradProject.Application.Interfaces.Nutrition.AI;
 using GradProject.Infrastructure.Persistence;
@@ -10,211 +11,117 @@ namespace GradProject.Infrastructure.Services.Nutrition.AI
     public class MealParsingService : IMealParsingService
     {
         private readonly AppDbContext _db;
+        private readonly HttpClient _httpClient;
 
-        public MealParsingService(AppDbContext db)
+        public MealParsingService(AppDbContext db, HttpClient httpClient)
         {
             _db = db;
+            _httpClient = httpClient;
         }
-
-        private static readonly Dictionary<string, decimal> UnitToGramMultiplier = new(StringComparer.OrdinalIgnoreCase)
-        {
-            ["g"] = 1m,
-            ["gr"] = 1m,
-            ["gram"] = 1m,
-            ["grams"] = 1m,
-
-            ["kg"] = 1000m,
-            ["kilogram"] = 1000m,
-            ["kilograms"] = 1000m,
-
-            ["ml"] = 1m,
-            ["milliliter"] = 1m,
-            ["milliliters"] = 1m,
-
-            ["l"] = 1000m,
-            ["lt"] = 1000m,
-            ["liter"] = 1000m,
-            ["liters"] = 1000m,
-        };
-
-        private static readonly HashSet<string> CountUnits = new(StringComparer.OrdinalIgnoreCase)
-        {
-            "piece","pieces","pc","pcs",
-            "slice","slices",
-            "adet","tane"
-        };
-
-        private static readonly Regex QtyUnitNameRegex = new(
-            @"^\s*(?<qty>\d+([.,]\d+)?)\s*(?<unit>[a-zA-ZçðýöþüÇÐÝÖÞÜ]+)?\s*(?<name>.+?)\s*$",
-            RegexOptions.Compiled);
-
-        private static readonly Regex SplitRegex = new(
-            @"\s*(,|;|\+|\band\b|\bve\b)\s*",
-            RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         public async Task<MealParseResultDto> ParseAsync(int userId, MealParseRequestDto request, CancellationToken ct = default)
         {
-            var text = (request.Text ?? string.Empty).Trim();
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                return new MealParseResultDto
-                {
-                    OriginalText = request.Text ?? string.Empty,
-                    ConsumedAt = request.ConsumedAt
-                };
-            }
+            var payload = new { text = request.Text, consumedAt = request.ConsumedAt };
 
-            var parts = SplitRegex.Split(text)
-                .Where(x => !string.IsNullOrWhiteSpace(x))
-                .Where(x => x is not "," and not ";" and not "+")
-                .ToList();
+            var response = await _httpClient.PostAsJsonAsync("/parse-meal", payload, ct);
+            response.EnsureSuccessStatusCode();
+
+            var aiResponse = await response.Content.ReadFromJsonAsync<PythonMealResponse>(cancellationToken: ct);
+            if (aiResponse == null) return new MealParseResultDto();
 
             var result = new MealParseResultDto
             {
-                OriginalText = text,
-                ConsumedAt = request.ConsumedAt
+                OriginalText = aiResponse.OriginalText,
+                ConsumedAt = aiResponse.ConsumedAt,
+                TotalKcal = (decimal)aiResponse.TotalCalories,
+                TotalProteinG = (decimal)aiResponse.TotalProtein,
+                TotalFatG = (decimal)aiResponse.TotalFat,
+                TotalCarbG = (decimal)aiResponse.TotalCarbs,
+                Items = aiResponse.Items.Select(i => new MealParseItemDto
+                {
+                    Raw = i.Raw,
+                    NormalizedName = i.NormalizedName,
+                    MatchedFoodId = i.MatchedFoodId,
+                    MatchedFoodName = i.MatchedFoodName,
+                    Confidence = (decimal)i.Confidence,
+                    PortionG = (decimal)i.PortionG,
+                    Kcal = (decimal)i.Calories,
+                    ProteinG = (decimal)i.Protein,
+                    FatG = (decimal)i.Fat,
+                    CarbG = (decimal)i.Carbs
+                }).ToList()
             };
-
-            foreach (var part in parts)
-            {
-                var item = await ParseOneAsync(part, ct);
-                result.Items.Add(item);
-
-                if (item.Kcal.HasValue) result.TotalKcal += item.Kcal.Value;
-                if (item.ProteinG.HasValue) result.TotalProteinG += item.ProteinG.Value;
-                if (item.FatG.HasValue) result.TotalFatG += item.FatG.Value;
-                if (item.CarbG.HasValue) result.TotalCarbG += item.CarbG.Value;
-            }
-
-            result.TotalKcal = Round2(result.TotalKcal);
-            result.TotalProteinG = Round2(result.TotalProteinG);
-            result.TotalFatG = Round2(result.TotalFatG);
-            result.TotalCarbG = Round2(result.TotalCarbG);
 
             return result;
         }
 
-        private async Task<MealParseItemDto> ParseOneAsync(string raw, CancellationToken ct)
+        public async Task SyncFoodsToAiAsync(CancellationToken ct = default)
         {
-            var trimmed = raw.Trim();
+            var foods = await _db.Foods.AsNoTracking().ToListAsync(ct);
 
-            trimmed = Regex.Replace(trimmed, @"\b(of|a|an|some)\b", "", RegexOptions.IgnoreCase).Trim();
-
-            decimal qty = 1m;
-            string? unit = null;
-            string name = trimmed;
-
-            var m = QtyUnitNameRegex.Match(trimmed);
-            if (m.Success)
+            var payload = new
             {
-                var qtyStr = m.Groups["qty"].Value.Replace(',', '.');
-                if (decimal.TryParse(qtyStr, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsedQty))
-                    qty = parsedQty;
-
-                unit = m.Groups["unit"].Success ? m.Groups["unit"].Value.Trim() : null;
-                name = m.Groups["name"].Value.Trim();
-            }
-
-            var normalizedName = NormalizeFoodName(name);
-            var matchedFood = await FindBestFoodMatchAsync(normalizedName, ct);
-
-            var portionG = ComputePortionGrams(qty, unit, matchedFood?.DefaultPortionG);
-
-            var dto = new MealParseItemDto
-            {
-                Raw = raw,
-                NormalizedName = normalizedName,
-                PortionG = portionG
+                foods = foods.Select(f => new
+                {
+                    id = f.Id,
+                    name = f.Name,
+                    aliases = f.Aliases ?? new string[0],
+                    default_portion_g = f.DefaultPortionG,
+                    calories_per_100g = f.Kcal,
+                    protein_per_100g = f.ProteinG,
+                    carbs_per_100g = f.CarbG,
+                    fat_per_100g = f.FatG
+                }).ToList()
             };
 
-            if (matchedFood is null)
-            {
-                dto.Confidence = 0.10m;
-                return dto;
-            }
-
-            dto.MatchedFoodId = matchedFood.Id;
-            dto.MatchedFoodName = matchedFood.Name;
-            dto.Confidence = ComputeConfidence(normalizedName, matchedFood);
-
-            var factor = portionG / 100m;
-
-            dto.Kcal = Round2(matchedFood.Kcal * factor);
-            dto.ProteinG = Round2(matchedFood.ProteinG * factor);
-            dto.FatG = Round2(matchedFood.FatG * factor);
-            dto.CarbG = Round2(matchedFood.CarbG * factor);
-
-            return dto;
+            var response = await _httpClient.PostAsJsonAsync("/load-foods", payload, ct);
+            response.EnsureSuccessStatusCode();
         }
 
-        private static string NormalizeFoodName(string name)
+
+        private class PythonMealResponse
         {
-            var n = name.Trim().ToLowerInvariant();
+            [JsonPropertyName("originalText")]
+            public string OriginalText { get; set; } = "";
 
-            n = Regex.Replace(n, @"[^\p{L}\p{N}\s]", " ");
-            n = Regex.Replace(n, @"\s+", " ").Trim();
+            [JsonPropertyName("consumedAt")]
+            public DateTime? ConsumedAt { get; set; }
 
-            return n;
+            [JsonPropertyName("items")]
+            public List<PythonParsedItem> Items { get; set; } = new();
+
+            [JsonPropertyName("totalCalories")]
+            public double TotalCalories { get; set; }
+            [JsonPropertyName("totalProtein")]
+            public double TotalProtein { get; set; }
+            [JsonPropertyName("totalCarbs")]
+            public double TotalCarbs { get; set; }
+            [JsonPropertyName("totalFat")]
+            public double TotalFat { get; set; }
         }
 
-        private static decimal ComputePortionGrams(decimal qty, string? unit, decimal? defaultPortionG)
+        private class PythonParsedItem
         {
-            if (!string.IsNullOrWhiteSpace(unit))
-            {
-                if (UnitToGramMultiplier.TryGetValue(unit, out var mult))
-                    return Round2(qty * mult);
-
-                if (CountUnits.Contains(unit))
-                {
-                    var baseG = defaultPortionG ?? 100m;
-                    return Round2(qty * baseG);
-                }
-            }
-
-            if (defaultPortionG.HasValue)
-                return Round2(qty * defaultPortionG.Value);
-
-            return Round2(qty * 100m);
+            [JsonPropertyName("raw")]
+            public string Raw { get; set; } = "";
+            [JsonPropertyName("normalizedName")]
+            public string NormalizedName { get; set; } = "";
+            [JsonPropertyName("matchedFoodId")]
+            public int? MatchedFoodId { get; set; }
+            [JsonPropertyName("matchedFoodName")]
+            public string? MatchedFoodName { get; set; }
+            [JsonPropertyName("confidence")]
+            public double Confidence { get; set; }
+            [JsonPropertyName("portionG")]
+            public double PortionG { get; set; }
+            [JsonPropertyName("calories")]
+            public double Calories { get; set; }
+            [JsonPropertyName("protein")]
+            public double Protein { get; set; }
+            [JsonPropertyName("carbs")]
+            public double Carbs { get; set; }
+            [JsonPropertyName("fat")]
+            public double Fat { get; set; }
         }
-
-        private static decimal ComputeConfidence(string normalizedName, Domain.Entities.Food matched)
-        {
-            if (string.Equals(matched.Name, normalizedName, StringComparison.OrdinalIgnoreCase))
-                return 1.0m;
-
-            if (matched.Aliases != null &&
-                matched.Aliases.Any(a => string.Equals(a, normalizedName, StringComparison.OrdinalIgnoreCase)))
-                return 0.9m;
-
-            if (matched.Name.Contains(normalizedName, StringComparison.OrdinalIgnoreCase) ||
-                normalizedName.Contains(matched.Name, StringComparison.OrdinalIgnoreCase))
-                return 0.7m;
-
-            return 0.5m;
-        }
-
-        private async Task<Domain.Entities.Food?> FindBestFoodMatchAsync(string normalizedName, CancellationToken ct)
-        {
-            var exact = await _db.Foods.AsNoTracking()
-                .FirstOrDefaultAsync(f =>
-                    f.Name.ToLower() == normalizedName ||
-                    (f.Aliases != null && f.Aliases.Any(a => a.ToLower() == normalizedName)),
-                    ct);
-
-            if (exact != null) return exact;
-
-            var pattern = $"%{normalizedName}%";
-            var candidates = await _db.Foods.AsNoTracking()
-                .Where(f =>
-                    EF.Functions.ILike(f.Name, pattern) ||
-                    (f.Aliases != null && f.Aliases.Any(a => EF.Functions.ILike(a, pattern))))
-                .OrderBy(f => f.Name.Length)
-                .Take(5)
-                .ToListAsync(ct);
-
-            return candidates.FirstOrDefault();
-        }
-
-        private static decimal Round2(decimal v) => Math.Round(v, 2);
     }
 }
