@@ -9,10 +9,12 @@ namespace GradProject.Infrastructure.Services.Nutrition
     public class ConsumedFoodService : IConsumedFoodService
     {
         private readonly AppDbContext _db;
+        private readonly IDailyIntakeAggregationService _dailyAgg;
 
-        public ConsumedFoodService(AppDbContext db)
+        public ConsumedFoodService(AppDbContext db, IDailyIntakeAggregationService dailyAgg)
         {
             _db = db;
+            _dailyAgg = dailyAgg;
         }
 
         public async Task<IReadOnlyList<ConsumedFoodResponseDto>> GetByDateAsync(int userId, DateOnly date, CancellationToken ct = default)
@@ -55,6 +57,10 @@ namespace GradProject.Infrastructure.Services.Nutrition
             _db.ConsumedFoods.Add(entity);
             await _db.SaveChangesAsync(ct);
 
+            // Trigger daily intake aggregation for the affected date
+            var date = DateOnly.FromDateTime(entity.ConsumedAt);
+            await _dailyAgg.AggregateDailyIntakeAsync(userId, date, ct);
+
             // Get food name for response
             var foodName = await _db.Foods
                 .AsNoTracking()
@@ -81,10 +87,19 @@ namespace GradProject.Infrastructure.Services.Nutrition
             if (entity is null)
                 return null;
 
+            var oldDate = DateOnly.FromDateTime(entity.ConsumedAt);
+
             entity.PortionG = request.PortionG;
             entity.ConsumedAt = request.ConsumedAt ?? entity.ConsumedAt;
 
             await _db.SaveChangesAsync(ct);
+
+            // Trigger daily intake aggregation (new date + old date if changed)
+            var newDate = DateOnly.FromDateTime(entity.ConsumedAt);
+            await _dailyAgg.AggregateDailyIntakeAsync(userId, newDate, ct);
+
+            if (oldDate != newDate)
+                await _dailyAgg.AggregateDailyIntakeAsync(userId, oldDate, ct);
 
             return new ConsumedFoodResponseDto
             {
@@ -104,8 +119,13 @@ namespace GradProject.Infrastructure.Services.Nutrition
             if (entity is null)
                 return false;
 
+            var date = DateOnly.FromDateTime(entity.ConsumedAt);
+
             _db.ConsumedFoods.Remove(entity);
             await _db.SaveChangesAsync(ct);
+
+            // Trigger daily intake aggregation for the affected date
+            await _dailyAgg.AggregateDailyIntakeAsync(userId, date, ct);
 
             return true;
         }
