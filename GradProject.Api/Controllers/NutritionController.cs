@@ -1,11 +1,12 @@
-﻿using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
-using GradProject.Application.DTOs.Nutrition;
+﻿using GradProject.Application.DTOs.Nutrition;
 using GradProject.Application.DTOs.Nutrition.AI;
 using GradProject.Application.Interfaces.Nutrition;
 using GradProject.Application.Interfaces.Nutrition.AI;
+using GradProject.Infrastructure.Services.Nutrition;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 
 namespace GradProject.Api.Controllers
 {
@@ -19,16 +20,19 @@ namespace GradProject.Api.Controllers
         private readonly IDailyIntakeAggregationService _dailyIntakeAggregationService;
         private readonly IMealParsingService _mealParsingService;
 
+        private readonly IMealService _mealService;
         public NutritionController(
         INutritionCalculationService nutritionCalculationService,
         INutritionTargetsService nutritionTargetsService,
         IDailyIntakeAggregationService dailyIntakeAggregationService,
-        IMealParsingService mealParsingService)
+        IMealParsingService mealParsingService,
+        IMealService mealService)
         {
             _nutritionCalculationService = nutritionCalculationService;
             _nutritionTargetsService = nutritionTargetsService;
             _dailyIntakeAggregationService = dailyIntakeAggregationService;
             _mealParsingService = mealParsingService;
+            _mealService = mealService;
         }
 
 
@@ -76,12 +80,56 @@ namespace GradProject.Api.Controllers
         /// Rule-based NLP parsing: converts meal text into structured food items + portion grams + macro estimates.
         /// </summary>
         [HttpPost("parse-meal")]
-        public async Task<ActionResult<MealParseResultDto>> ParseMeal([FromBody] MealParseRequestDto request, CancellationToken ct)
+        public async Task<ActionResult<MealResponseDto>> ParseAndSaveMeal([FromBody] MealParseRequestDto request, CancellationToken ct)
         {
             var userId = GetUserIdOrThrow();
-            var result = await _mealParsingService.ParseAsync(userId, request, ct);
-            return Ok(result);
+
+            var parseResult = await _mealParsingService.ParseAsync(userId, request, ct);
+
+            var validItems = parseResult.Items
+                .Where(i => i.MatchedFoodId.HasValue)
+                .ToList();
+
+            if (!validItems.Any())
+            {
+                return BadRequest(new { message = "AI metin içinde veritabanında kayıtlı bir yemek bulamadı." });
+            }
+
+            var mealFoods = validItems.Select(item => new MealFoodDto
+            {
+                FoodId = item.MatchedFoodId.Value,
+                Quantity = item.PortionG,
+                Unit = "g"
+            }).ToList();
+
+            var consumedAt = request.ConsumedAt ?? DateTime.UtcNow;
+            var mealType = DetermineMealTypeByTime(consumedAt);
+
+            var createMealRequest = new CreateMealRequestDto
+            {
+                LoggedAt = consumedAt,
+                MealType = mealType,
+                RawText = request.Text,
+                Notes = "AI Auto-Parsed",
+                Foods = mealFoods
+            };
+
+            var savedMeal = await _mealService.CreateAsync(userId, createMealRequest, ct);
+
+            return Ok(savedMeal);
         }
+
+        private static Domain.Enums.MealType DetermineMealTypeByTime(DateTime time)
+        {
+            var hour = time.Hour;
+
+            if (hour >= 5 && hour < 11) return Domain.Enums.MealType.BREAKFAST;
+            if (hour >= 11 && hour < 16) return Domain.Enums.MealType.LUNCH;
+            if (hour >= 16 && hour < 22) return Domain.Enums.MealType.DINNER;
+
+            return Domain.Enums.MealType.SNACK;
+        }
+
 
         private int GetUserIdOrThrow()
         {

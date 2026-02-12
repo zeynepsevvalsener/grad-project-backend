@@ -23,7 +23,7 @@ using GradProject.Infrastructure.Services.Nutrition.AI;
 DotNetEnv.Env.Load();
 
 var builder = WebApplication.CreateBuilder(args);
-
+var aiUrl = builder.Configuration.GetValue<string>("AiServiceSettings:BaseUrl") ?? "http://127.0.0.1:8000";
 // DbContext (PostgreSQL)
 builder.Services.AddDbContext<AppDbContext>(opt =>
     opt.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
@@ -48,7 +48,8 @@ builder.Services.AddScoped<INutritionTargetsService, NutritionTargetsService>();
 builder.Services.AddScoped<IFoodSearchService, FoodSearchService>();
 builder.Services.AddScoped<IRunActivityService, RunActivityService>();
 builder.Services.AddScoped<IDailyIntakeAggregationService, DailyIntakeAggregationService>();
-builder.Services.AddScoped<IMealParsingService, MealParsingService>();
+//builder.Services.AddScoped<IMealParsingService, MealParsingService>(); şimdilik alttakine çevirdim denemek için.
+builder.Services.AddHttpClient<IMealParsingService, MealParsingService>(client =>{client.BaseAddress = new Uri(aiUrl);});
 builder.Services.AddScoped<IMealService, MealService>();
 
 
@@ -174,12 +175,20 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-// DIŞ SERVİSE TEK SEFERLİK STRAVA İSTEK
 using (var scope = app.Services.CreateScope())
 {
-    // var stravaService = scope.ServiceProvider.GetRequiredService<GradProject.Infrastructure.Services.StravaApiService>();
-    // var result = await stravaService.GetAthleteInfo();
-    // Console.WriteLine(result);
+    try
+    {
+        var mealParsingService = scope.ServiceProvider.GetRequiredService<IMealParsingService>();
+
+        mealParsingService.SyncFoodsToAiAsync().Wait();
+
+        Console.WriteLine("SUCCESS: Foods synced to AI service.");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"WARNING: Could not sync foods to AI service. Is Python running? Error: {ex.Message}");
+    }
 }
 
 app.Run();
