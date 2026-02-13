@@ -3,11 +3,13 @@ using FluentValidation;
 using GradProject.Api.Middlewares;
 using GradProject.Application.Interfaces;
 using GradProject.Application.Interfaces.Nutrition;
+using GradProject.Application.Interfaces.Gamification;
 using GradProject.Application.Utilities;
 using GradProject.Application.Validators.Auth;
 using GradProject.Infrastructure.Persistence;
 using GradProject.Infrastructure.Services;
 using GradProject.Infrastructure.Services.Nutrition;
+using GradProject.Infrastructure.Services.Gamification;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -51,6 +53,8 @@ builder.Services.AddScoped<IDailyIntakeAggregationService, DailyIntakeAggregatio
 //builder.Services.AddScoped<IMealParsingService, MealParsingService>(); şimdilik alttakine çevirdim denemek için.
 builder.Services.AddHttpClient<IMealParsingService, MealParsingService>(client =>{client.BaseAddress = new Uri(aiUrl);});
 builder.Services.AddScoped<IMealService, MealService>();
+builder.Services.AddScoped<IChallengeService, ChallengeService>();
+builder.Services.AddScoped<IBadgeService, BadgeService>();
 
 
 
