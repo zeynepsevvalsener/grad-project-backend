@@ -18,6 +18,9 @@ namespace GradProject.Infrastructure.Persistence
         public DbSet<MealFood> MealFoods => Set<MealFood>();
         public DbSet<DailySummary> DailySummaries => Set<DailySummary>();
 
+        public DbSet<Challenge> Challenges => Set<Challenge>();
+        public DbSet<Badge> Badges => Set<Badge>();
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -382,6 +385,83 @@ namespace GradProject.Infrastructure.Persistence
                 e.ToTable(t =>
                 {
                     t.HasCheckConstraint("CK_MealFoods_Quantity_Positive", "\"Quantity\" > 0");
+                });
+            });
+
+            // CHALLENGE
+            modelBuilder.Entity<Challenge>(e =>
+            {
+                e.HasKey(c => c.Id);
+
+                e.Property(c => c.Title)
+                 .IsRequired()
+                 .HasMaxLength(200);
+
+                e.Property(c => c.Description)
+                 .HasMaxLength(1000);
+
+                e.Property(c => c.Type)
+                 .HasConversion<int>();
+
+                e.Property(c => c.Metric)
+                 .HasConversion<int>();
+
+                e.Property(c => c.TargetValue)
+                 .IsRequired();
+
+                e.Property(c => c.StartDate)
+                 .IsRequired();
+
+                e.Property(c => c.EndDate)
+                 .IsRequired();
+
+                e.Property(c => c.RewardPoints)
+                 .IsRequired();
+
+                e.HasIndex(c => c.IsActive)
+                 .HasDatabaseName("IX_Challenges_IsActive");
+
+                e.HasIndex(c => c.StartDate)
+                 .HasDatabaseName("IX_Challenges_StartDate");
+
+                e.HasIndex(c => c.EndDate)
+                 .HasDatabaseName("IX_Challenges_EndDate");
+
+                e.ToTable(t =>
+                {
+                    t.HasCheckConstraint("CK_Challenges_TargetValue_NonNegative", "\"TargetValue\" >= 0");
+                    t.HasCheckConstraint("CK_Challenges_RewardPoints_NonNegative", "\"RewardPoints\" >= 0");
+                    t.HasCheckConstraint("CK_Challenges_EndDate_GreaterThanOrEqual_StartDate", "\"EndDate\" >= \"StartDate\"");
+                });
+            });
+
+            // BADGE
+            modelBuilder.Entity<Badge>(e =>
+            {
+                e.HasKey(b => b.Id);
+
+                e.Property(b => b.Name)
+                 .IsRequired()
+                 .HasMaxLength(200);
+
+                e.Property(b => b.Description)
+                 .HasMaxLength(1000);
+
+                e.Property(b => b.Type)
+                 .HasConversion<int>();
+
+                e.Property(b => b.IconUrl)
+                 .HasMaxLength(500);
+
+                e.Property(b => b.PointsReward)
+                 .IsRequired();
+
+                e.HasIndex(b => b.IsActive)
+                 .HasDatabaseName("IX_Badges_IsActive");
+
+                e.ToTable(t =>
+                {
+                    t.HasCheckConstraint("CK_Badges_PointsReward_NonNegative", "\"PointsReward\" >= 0");
                 });
             });
         }
