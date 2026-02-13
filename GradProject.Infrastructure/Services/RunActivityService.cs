@@ -1,7 +1,7 @@
-using System.Text.Json;
 using GradProject.Application.Interfaces;
 using GradProject.Domain.Entities;
 using GradProject.Infrastructure.Persistence;
+using GradProject.Infrastructure.Services.Strava;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -65,55 +65,25 @@ namespace GradProject.Infrastructure.Services
 
                 var activity = activityJson.Value;
 
-                // Extract activity data
-                if (!activity.TryGetProperty("id", out var idElement) ||
-                    !activity.TryGetProperty("start_date", out var startDateElement) ||
-                    !activity.TryGetProperty("moving_time", out var movingTimeElement) ||
-                    !activity.TryGetProperty("distance", out var distanceElement))
+                // Normalize Strava activity (date/time, distance, duration, calories with fallbacks and cleanup)
+                var normalized = StravaActivityNormalizer.Normalize(activity);
+                if (normalized == null)
                 {
                     return new FetchLatestRunResult
                     {
                         Success = false,
-                        ErrorMessage = "Invalid activity data from Strava."
+                        ErrorMessage = "Invalid or incomplete activity data from Strava."
                     };
                 }
-
-                var externalId = idElement.GetInt64().ToString();
-                var startDateStr = startDateElement.GetString();
-                
-                if (string.IsNullOrWhiteSpace(startDateStr) || 
-                    !DateTimeOffset.TryParse(startDateStr, out var startDateTime))
-                {
-                    return new FetchLatestRunResult
-                    {
-                        Success = false,
-                        ErrorMessage = "Invalid start date from Strava activity."
-                    };
-                }
-
-                var durationSeconds = movingTimeElement.GetInt32();
-                var distanceMeters = (float)distanceElement.GetDouble();
-
-                // Extract burned calories if available
-                int? burnedCalories = null;
-                if (activity.TryGetProperty("calories", out var caloriesElement) && 
-                    caloriesElement.ValueKind == JsonValueKind.Number)
-                {
-                    burnedCalories = caloriesElement.GetInt32();
-                }
-
-                // Derive runDate from startDateTime (using the timezone of the startDateTime)
-                var runDate = DateOnly.FromDateTime(startDateTime.Date);
 
                 // Check if activity already exists
                 var existingActivity = await _db.RunActivities
                     .FirstOrDefaultAsync(
-                        r => r.UserId == userId && r.ExternalId == externalId,
+                        r => r.UserId == userId && r.ExternalId == normalized.ExternalId,
                         ct);
 
                 if (existingActivity != null)
                 {
-                    // Return existing activity
                     return new FetchLatestRunResult
                     {
                         Success = true,
@@ -131,16 +101,16 @@ namespace GradProject.Infrastructure.Services
                     };
                 }
 
-                // Create new RunActivity
+                // Create new RunActivity from normalized data
                 var runActivity = new RunActivity
                 {
                     UserId = userId,
-                    ExternalId = externalId,
-                    RunDate = runDate,
-                    StartDateTime = startDateTime,
-                    DurationSeconds = durationSeconds,
-                    DistanceMeters = distanceMeters,
-                    BurnedCalories = burnedCalories,
+                    ExternalId = normalized.ExternalId,
+                    RunDate = normalized.RunDate,
+                    StartDateTime = normalized.StartDateTime,
+                    DurationSeconds = normalized.DurationSeconds,
+                    DistanceMeters = normalized.DistanceMeters,
+                    BurnedCalories = normalized.BurnedCalories,
                     Source = "STRAVA"
                 };
 
