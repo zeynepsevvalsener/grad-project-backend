@@ -4,27 +4,33 @@ using System.Text.Json;
 namespace GradProject.Infrastructure.Services.Strava
 {
     /// <summary>
-    /// Normalizes Strava API activity JSON into a consistent shape for RunActivity.
+    /// Normalizes Strava API activity JSON into a consistent shape for RunningActivity.
     /// Applies fallbacks and cleanup so analytics get reliable data.
     /// </summary>
     public static class StravaActivityNormalizer
     {
         /// <summary>
         /// Result of normalizing a Strava activity. All required fields are guaranteed
-        /// to have valid values; optional fields (e.g. calories) may be null.
+        /// to have valid values; optional fields (e.g. calories, HR) may be null.
         /// </summary>
         public class NormalizedActivity
         {
             public string ExternalId { get; init; } = null!;
+            public string Name { get; init; } = null!;
+            public string Type { get; init; } = null!;
             public DateOnly RunDate { get; init; }
             public DateTimeOffset StartDateTime { get; init; }
-            public int DurationSeconds { get; init; }
+            public int MovingTimeSeconds { get; init; }
+            public int ElapsedTimeSeconds { get; init; }
             public float DistanceMeters { get; init; }
+            public double TotalElevationGain { get; init; }
+            public double AverageSpeed { get; init; }
+            public double? AverageHeartRate { get; init; }
             public int? BurnedCalories { get; init; }
         }
 
         /// <summary>
-        /// Normalizes a Strava activity JsonElement into values consistent with RunActivity.
+        /// Normalizes a Strava activity JsonElement into values consistent with RunningActivity.
         /// Returns null if the activity is too invalid (e.g. missing id or dates).
         /// </summary>
         public static NormalizedActivity? Normalize(JsonElement activity)
@@ -54,13 +60,36 @@ namespace GradProject.Infrastructure.Services.Strava
 
             var runDate = DateOnly.FromDateTime(startDateTime.Date);
 
+            // --- Name: fallback to "Run" ---
+            var name = GetString(activity, "name") ?? "Run";
+
+            // --- Type: fallback to "Run" ---
+            var type = GetString(activity, "type") ?? "Run";
+
             // --- Duration: prefer moving_time, fallback to elapsed_time, then 0 ---
-            var durationSeconds = GetIntNonNegative(activity, "moving_time")
+            var movingTimeSeconds = GetIntNonNegative(activity, "moving_time")
                 ?? GetIntNonNegative(activity, "elapsed_time")
                 ?? 0;
 
+            // --- Elapsed time: prefer elapsed_time, fallback to moving_time ---
+            var elapsedTimeSeconds = GetIntNonNegative(activity, "elapsed_time")
+                ?? movingTimeSeconds;
+
             // --- Distance: meters, non-negative ---
             var distanceMeters = GetFloatNonNegative(activity, "distance") ?? 0f;
+
+            // --- Elevation gain: non-negative ---
+            var totalElevationGain = GetDoubleNonNegative(activity, "total_elevation_gain") ?? 0.0;
+
+            // --- Average speed: non-negative ---
+            var averageSpeed = GetDoubleNonNegative(activity, "average_speed") ?? 0.0;
+
+            // --- Average heart rate: optional ---
+            double? averageHeartRate = null;
+            if (TryGetNumber(activity, "average_heartrate", out var hr) && hr > 0)
+            {
+                averageHeartRate = hr;
+            }
 
             // --- Calories: optional, non-negative if present ---
             int? burnedCalories = null;
@@ -74,12 +103,25 @@ namespace GradProject.Infrastructure.Services.Strava
             return new NormalizedActivity
             {
                 ExternalId = externalId,
+                Name = name,
+                Type = type,
                 RunDate = runDate,
                 StartDateTime = startDateTime,
-                DurationSeconds = durationSeconds,
+                MovingTimeSeconds = movingTimeSeconds,
+                ElapsedTimeSeconds = elapsedTimeSeconds,
                 DistanceMeters = distanceMeters,
+                TotalElevationGain = totalElevationGain,
+                AverageSpeed = averageSpeed,
+                AverageHeartRate = averageHeartRate,
                 BurnedCalories = burnedCalories
             };
+        }
+
+        private static string? GetString(JsonElement element, string propertyName)
+        {
+            if (!element.TryGetProperty(propertyName, out var prop))
+                return null;
+            return prop.GetString();
         }
 
         private static bool TryGetLong(JsonElement element, string propertyName, out long value)
@@ -130,6 +172,23 @@ namespace GradProject.Infrastructure.Services.Strava
                 return null;
             }
             return f < 0 ? 0f : f;
+        }
+
+        private static double? GetDoubleNonNegative(JsonElement element, string propertyName)
+        {
+            if (!element.TryGetProperty(propertyName, out var prop))
+                return null;
+            if (prop.ValueKind != JsonValueKind.Number)
+                return null;
+            try
+            {
+                var d = prop.GetDouble();
+                return d < 0 ? 0.0 : d;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         private static bool TryGetNumber(JsonElement element, string propertyName, out double value)

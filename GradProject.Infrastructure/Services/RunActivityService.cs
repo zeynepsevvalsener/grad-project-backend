@@ -1,3 +1,4 @@
+using GradProject.Application.DTOs.Common;
 using GradProject.Application.Interfaces;
 using GradProject.Domain.Entities;
 using GradProject.Infrastructure.Persistence;
@@ -65,7 +66,7 @@ namespace GradProject.Infrastructure.Services
 
                 var activity = activityJson.Value;
 
-                // Normalize Strava activity (date/time, distance, duration, calories with fallbacks and cleanup)
+                // Normalize Strava activity
                 var normalized = StravaActivityNormalizer.Normalize(activity);
                 if (normalized == null)
                 {
@@ -77,9 +78,9 @@ namespace GradProject.Infrastructure.Services
                 }
 
                 // Check if activity already exists
-                var existingActivity = await _db.RunActivities
+                var existingActivity = await _db.RunningActivities
                     .FirstOrDefaultAsync(
-                        r => r.UserId == userId && r.ExternalId == normalized.ExternalId,
+                        r => r.UserId == userId && r.ExternalActivityId == normalized.ExternalId,
                         ct);
 
                 if (existingActivity != null)
@@ -87,50 +88,39 @@ namespace GradProject.Infrastructure.Services
                     return new FetchLatestRunResult
                     {
                         Success = true,
-                        RunActivity = new RunActivityDto
-                        {
-                            Id = existingActivity.Id,
-                            ExternalId = existingActivity.ExternalId,
-                            RunDate = existingActivity.RunDate,
-                            StartDateTime = existingActivity.StartDateTime,
-                            DurationSeconds = existingActivity.DurationSeconds,
-                            DistanceMeters = existingActivity.DistanceMeters,
-                            BurnedCalories = existingActivity.BurnedCalories,
-                            Source = existingActivity.Source
-                        }
+                        RunActivity = MapToDto(existingActivity)
                     };
                 }
 
-                // Create new RunActivity from normalized data
-                var runActivity = new RunActivity
+                // Create new RunningActivity from normalized data
+                var now = DateTime.UtcNow;
+                var runningActivity = new RunningActivity
                 {
                     UserId = userId,
-                    ExternalId = normalized.ExternalId,
+                    ExternalActivityId = normalized.ExternalId,
+                    Name = normalized.Name,
+                    Type = normalized.Type,
+                    StartTime = normalized.StartDateTime.UtcDateTime,
                     RunDate = normalized.RunDate,
-                    StartDateTime = normalized.StartDateTime,
-                    DurationSeconds = normalized.DurationSeconds,
                     DistanceMeters = normalized.DistanceMeters,
+                    MovingTimeSeconds = normalized.MovingTimeSeconds,
+                    ElapsedTimeSeconds = normalized.ElapsedTimeSeconds,
+                    TotalElevationGain = normalized.TotalElevationGain,
+                    AverageSpeed = normalized.AverageSpeed,
+                    AverageHeartRate = normalized.AverageHeartRate,
                     BurnedCalories = normalized.BurnedCalories,
-                    Source = "STRAVA"
+                    Source = "STRAVA",
+                    CreatedAt = now,
+                    UpdatedAt = now
                 };
 
-                _db.RunActivities.Add(runActivity);
+                _db.RunningActivities.Add(runningActivity);
                 await _db.SaveChangesAsync(ct);
 
                 return new FetchLatestRunResult
                 {
                     Success = true,
-                    RunActivity = new RunActivityDto
-                    {
-                        Id = runActivity.Id,
-                        ExternalId = runActivity.ExternalId,
-                        RunDate = runActivity.RunDate,
-                        StartDateTime = runActivity.StartDateTime,
-                        DurationSeconds = runActivity.DurationSeconds,
-                        DistanceMeters = runActivity.DistanceMeters,
-                        BurnedCalories = runActivity.BurnedCalories,
-                        Source = runActivity.Source
-                    }
+                    RunActivity = MapToDto(runningActivity)
                 };
             }
             catch (Exception ex)
@@ -143,6 +133,141 @@ namespace GradProject.Infrastructure.Services
                 };
             }
         }
+
+        public async Task<IReadOnlyList<RunActivityDto>> GetRecentAsync(int userId, int limit, DateOnly? startDate = null, DateOnly? endDate = null, CancellationToken ct = default)
+        {
+            // Normalize limit
+            if (limit < 1) limit = 100;
+            if (limit > 1000) limit = 1000; // Safety limit
+
+            // Check if user is connected to Strava
+            var user = await _db.Users
+                .AsNoTracking()
+                .FirstOrDefaultAsync(u => u.Id == userId, ct);
+
+            if (user == null)
+            {
+                return new List<RunActivityDto>();
+            }
+
+            if (string.IsNullOrWhiteSpace(user.StravaAccessToken))
+            {
+                // If no Strava connection, return from database
+                IQueryable<RunningActivity> baseQuery = _db.RunningActivities
+                    .AsNoTracking()
+                    .Where(r => r.UserId == userId);
+
+                // Apply date filtering
+                if (startDate.HasValue && endDate.HasValue)
+                {
+                    baseQuery = baseQuery.Where(r => r.RunDate >= startDate.Value && r.RunDate <= endDate.Value);
+                }
+                else if (startDate.HasValue)
+                {
+                    baseQuery = baseQuery.Where(r => r.RunDate >= startDate.Value);
+                }
+                else if (endDate.HasValue)
+                {
+                    baseQuery = baseQuery.Where(r => r.RunDate <= endDate.Value);
+                }
+
+                var activities = await baseQuery
+                    .OrderByDescending(r => r.StartTime)
+                    .Take(limit)
+                    .ToListAsync(ct);
+
+                return activities.Select(MapToDto).ToList();
+            }
+
+            // Fetch from Strava directly
+            var stravaActivities = await _stravaApiService.GetAllRunActivitiesAsync(user.StravaAccessToken, limit);
+            
+            var result = new List<RunActivityDto>();
+            var activitiesToSave = new List<RunningActivity>();
+            var now = DateTime.UtcNow;
+
+            foreach (var activityJson in stravaActivities)
+            {
+                var normalized = StravaActivityNormalizer.Normalize(activityJson);
+                if (normalized == null)
+                    continue;
+
+                // Check if exists in DB
+                var existing = await _db.RunningActivities
+                    .FirstOrDefaultAsync(r => r.UserId == userId && r.ExternalActivityId == normalized.ExternalId, ct);
+
+                if (existing != null)
+                {
+                    result.Add(MapToDto(existing));
+                }
+                else
+                {
+                    // Create new activity to save
+                    var newActivity = new RunningActivity
+                    {
+                        UserId = userId,
+                        ExternalActivityId = normalized.ExternalId,
+                        Name = normalized.Name,
+                        Type = normalized.Type,
+                        StartTime = normalized.StartDateTime.UtcDateTime,
+                        RunDate = normalized.RunDate,
+                        DistanceMeters = normalized.DistanceMeters,
+                        MovingTimeSeconds = normalized.MovingTimeSeconds,
+                        ElapsedTimeSeconds = normalized.ElapsedTimeSeconds,
+                        TotalElevationGain = normalized.TotalElevationGain,
+                        AverageSpeed = normalized.AverageSpeed,
+                        AverageHeartRate = normalized.AverageHeartRate,
+                        BurnedCalories = normalized.BurnedCalories,
+                        Source = "STRAVA",
+                        CreatedAt = now,
+                        UpdatedAt = now
+                    };
+
+                    activitiesToSave.Add(newActivity);
+                    result.Add(MapToDto(newActivity));
+                }
+            }
+
+            // Save new activities to database in batch
+            if (activitiesToSave.Count > 0)
+            {
+                _db.RunningActivities.AddRange(activitiesToSave);
+                await _db.SaveChangesAsync(ct);
+                
+                // Update IDs in result for newly saved activities
+                for (int i = 0; i < activitiesToSave.Count; i++)
+                {
+                    var savedActivity = activitiesToSave[i];
+                    var dtoIndex = result.FindIndex(r => r.ExternalId == savedActivity.ExternalActivityId && r.Id == 0);
+                    if (dtoIndex >= 0)
+                    {
+                        result[dtoIndex] = MapToDto(savedActivity);
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        private static RunActivityDto MapToDto(RunningActivity entity)
+        {
+            return new RunActivityDto
+            {
+                Id = entity.Id,
+                ExternalId = entity.ExternalActivityId,
+                Name = entity.Name,
+                Type = entity.Type,
+                RunDate = entity.RunDate,
+                StartTime = entity.StartTime,
+                MovingTimeSeconds = entity.MovingTimeSeconds,
+                ElapsedTimeSeconds = entity.ElapsedTimeSeconds,
+                DistanceMeters = entity.DistanceMeters,
+                TotalElevationGain = entity.TotalElevationGain,
+                AverageSpeed = entity.AverageSpeed,
+                AverageHeartRate = entity.AverageHeartRate,
+                BurnedCalories = entity.BurnedCalories,
+                Source = entity.Source
+            };
+        }
     }
 }
-

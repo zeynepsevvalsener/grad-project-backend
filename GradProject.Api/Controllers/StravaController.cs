@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using GradProject.Application.DTOs.Common;
 using GradProject.Application.Interfaces;
 using GradProject.Infrastructure.Persistence;
 using GradProject.Infrastructure.Services;
@@ -102,6 +103,15 @@ namespace GradProject.Api.Controllers
             }
 
             return Ok(result.RunActivity);
+        }
+
+        [HttpGet("runs")]
+        [Authorize]
+        public async Task<ActionResult> GetAllRuns(CancellationToken ct = default)
+        {
+            var userId = GetUserIdOrThrow();
+            var recentRuns = await _runActivityService.GetRecentAsync(userId, 100, null, null, ct);
+            return Ok(recentRuns);
         }
 
         private int GetUserIdOrThrow()

@@ -1,3 +1,4 @@
+using System.Net.Http;
 using GradProject.Application.DTOs.Nutrition.AI;
 using GradProject.Domain.Entities;
 using GradProject.Infrastructure.Persistence;
@@ -45,12 +46,13 @@ public class MealParsingServiceTests
                 SugarG = 4.8m,
                 FiberG = 0m,
                 SodiumMg = 44m,
-                Aliases = new[] { "süt", "sut" }
+                Aliases = new[] { "sï¿½t", "sut" }
             }
         );
         await db.SaveChangesAsync();
 
-        var svc = new MealParsingService(db);
+        var httpClient = new HttpClient { BaseAddress = new Uri("http://localhost:8000") };
+        var svc = new MealParsingService(db, httpClient);
 
         var request = new MealParseRequestDto
         {
@@ -101,7 +103,8 @@ public class MealParsingServiceTests
         });
         await db.SaveChangesAsync();
 
-        var svc = new MealParsingService(db);
+        var httpClient = new HttpClient { BaseAddress = new Uri("http://localhost:8000") };
+        var svc = new MealParsingService(db, httpClient);
 
         var result = await svc.ParseAsync(1, new MealParseRequestDto { Text = "1,5 kg chicken" });
 
@@ -121,7 +124,8 @@ public class MealParsingServiceTests
     public async Task ParseAsync_UnknownFood_ReturnsUnmatchedItem_WithLowConfidence()
     {
         using var db = TestDbFactory.Create(nameof(ParseAsync_UnknownFood_ReturnsUnmatchedItem_WithLowConfidence));
-        var svc = new MealParsingService(db);
+        var httpClient = new HttpClient { BaseAddress = new Uri("http://localhost:8000") };
+        var svc = new MealParsingService(db, httpClient);
 
         var result = await svc.ParseAsync(1, new MealParseRequestDto { Text = "3 mysteryfood" });
 
@@ -157,7 +161,8 @@ public class MealParsingServiceTests
         });
         await db.SaveChangesAsync();
 
-        var svc = new MealParsingService(db);
+        var httpClient = new HttpClient { BaseAddress = new Uri("http://localhost:8000") };
+        var svc = new MealParsingService(db, httpClient);
 
         var result = await svc.ParseAsync(1, new MealParseRequestDto { Text = "2 yumurta" });
 

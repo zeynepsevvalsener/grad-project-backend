@@ -34,7 +34,7 @@ public class StravaActivityNormalizerTests
         Assert.NotNull(result);
         Assert.Equal("12345678", result.ExternalId);
         Assert.Equal(new DateOnly(2026, 2, 14), result.RunDate);
-        Assert.Equal(1800, result.DurationSeconds); // moving_time preferred
+        Assert.Equal(1800, result.MovingTimeSeconds); // moving_time preferred
         Assert.Equal(5000.5f, result.DistanceMeters);
         Assert.Equal(321, result.BurnedCalories); // rounded, positive
     }
@@ -56,7 +56,7 @@ public class StravaActivityNormalizerTests
 
         Assert.NotNull(result);
         Assert.Equal(new DateOnly(2026, 1, 1), result.RunDate);
-        Assert.Equal(600, result.DurationSeconds);
+        Assert.Equal(600, result.MovingTimeSeconds);
         Assert.Equal(1000f, result.DistanceMeters);
     }
 
@@ -76,7 +76,7 @@ public class StravaActivityNormalizerTests
         var result = StravaActivityNormalizer.Normalize(activity);
 
         Assert.NotNull(result);
-        Assert.Equal(2400, result.DurationSeconds);
+        Assert.Equal(2400, result.MovingTimeSeconds);
     }
 
     [Fact]
@@ -167,6 +167,6 @@ public class StravaActivityNormalizerTests
         var result = StravaActivityNormalizer.Normalize(activity);
 
         Assert.NotNull(result);
-        Assert.Equal(0, result.DurationSeconds);
+        Assert.Equal(0, result.MovingTimeSeconds);
     }
 }
