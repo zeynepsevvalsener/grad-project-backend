@@ -143,6 +143,50 @@ namespace GradProject.Infrastructure.Services
                 return null;
             }
         }
+
+        public async Task<List<JsonElement>> GetAllRunActivitiesAsync(string accessToken, int limit = 100)
+        {
+            try
+            {
+                // Strava API max per_page is 200, but we'll use 100 as requested
+                var perPage = Math.Min(limit, 200);
+                var req = new HttpRequestMessage(HttpMethod.Get, $"https://www.strava.com/api/v3/athlete/activities?per_page={perPage}");
+                req.Headers.Add("Authorization", $"Bearer {accessToken}");
+                
+                var res = await _httpClient.SendAsync(req);
+                var data = await res.Content.ReadAsStringAsync();
+
+                if (!res.IsSuccessStatusCode)
+                {
+                    return new List<JsonElement>();
+                }
+
+                var activities = JsonDocument.Parse(data).RootElement;
+                
+                if (activities.ValueKind != System.Text.Json.JsonValueKind.Array)
+                {
+                    return new List<JsonElement>();
+                }
+
+                var runActivities = new List<JsonElement>();
+                foreach (var activity in activities.EnumerateArray())
+                {
+                    if (activity.TryGetProperty("type", out var typeElement) && 
+                        typeElement.GetString()?.Equals("Run", StringComparison.OrdinalIgnoreCase) == true)
+                    {
+                        runActivities.Add(activity);
+                        if (runActivities.Count >= limit)
+                            break;
+                    }
+                }
+
+                return runActivities;
+            }
+            catch
+            {
+                return new List<JsonElement>();
+            }
+        }
     }
 }
 

@@ -40,15 +40,15 @@ namespace GradProject.Infrastructure.Services.Nutrition
             }
 
             // Get latest run for the date to calculate burned calories
-            var latestRun = await _db.RunActivities
+            var latestRun = await _db.RunningActivities
                 .Where(r => r.UserId == userId && r.RunDate == date)
-                .OrderByDescending(r => r.StartDateTime)
+                .OrderByDescending(r => r.StartTime)
                 .FirstOrDefaultAsync(ct);
 
             if (latestRun != null)
             {
                 // Always calculate burned calories using our formula (ignore Strava's value)
-                var calculatedCalories = await CalculateBurnedCaloriesAsync(latestRun.DistanceMeters, latestRun.DurationSeconds, userId, ct);
+                var calculatedCalories = await CalculateBurnedCaloriesAsync(latestRun.DistanceMeters, latestRun.MovingTimeSeconds, userId, ct);
                 if (calculatedCalories.HasValue)
                 {
                     latestRun.BurnedCalories = calculatedCalories.Value;
@@ -82,7 +82,7 @@ namespace GradProject.Infrastructure.Services.Nutrition
             await _db.SaveChangesAsync(ct);
         }
 
-        private async Task<int?> CalculateBurnedCaloriesAsync(float distanceMeters, int durationSeconds, int userId, CancellationToken ct)
+        private async Task<int?> CalculateBurnedCaloriesAsync(double distanceMeters, int durationSeconds, int userId, CancellationToken ct)
         {
             // Validate inputs
             if (distanceMeters <= 0 || durationSeconds <= 0)
@@ -96,9 +96,9 @@ namespace GradProject.Infrastructure.Services.Nutrition
             if (profile?.Weight == null || profile.Weight <= 0)
                 return null;
 
-            var weightKg = (float)profile.Weight.Value;
-            var distanceKm = distanceMeters / 1000f;
-            var durationHours = durationSeconds / 3600f;
+            var weightKg = (double)profile.Weight.Value;
+            var distanceKm = distanceMeters / 1000.0;
+            var durationHours = durationSeconds / 3600.0;
 
             // Calculate average speed (km/h)
             var speedKmh = durationHours > 0 ? distanceKm / durationHours : 0;
@@ -113,20 +113,20 @@ namespace GradProject.Infrastructure.Services.Nutrition
             return (int)Math.Round(burnedCalories);
         }
 
-        private float CalculateMetValue(float speedKmh)
+        private double CalculateMetValue(double speedKmh)
         {
             // MET values for running based on speed (km/h)
             // Source: Compendium of Physical Activities
-            if (speedKmh < 6.5f)
-                return 6.0f;  // Jogging
-            else if (speedKmh < 8.0f)
-                return 7.0f;  // Running, 6-7 km/h
-            else if (speedKmh < 9.7f)
-                return 8.0f;  // Running, 8 km/h
-            else if (speedKmh < 11.3f)
-                return 9.0f;  // Running, 9 km/h
+            if (speedKmh < 6.5)
+                return 6.0;  // Jogging
+            else if (speedKmh < 8.0)
+                return 7.0;  // Running, 6-7 km/h
+            else if (speedKmh < 9.7)
+                return 8.0;  // Running, 8 km/h
+            else if (speedKmh < 11.3)
+                return 9.0;  // Running, 9 km/h
             else
-                return 10.0f; // Running, 10+ km/h (fast)
+                return 10.0; // Running, 10+ km/h (fast)
         }
 
         public async Task<DailySummaryDto?> GetDailySummaryAsync(int userId, DateOnly date, CancellationToken ct = default)
@@ -139,10 +139,10 @@ namespace GradProject.Infrastructure.Services.Nutrition
                 return null;
 
             // Get burned calories from the latest run for this date
-            var latestRun = await _db.RunActivities
+            var latestRun = await _db.RunningActivities
                 .AsNoTracking()
                 .Where(r => r.UserId == userId && r.RunDate == date)
-                .OrderByDescending(r => r.StartDateTime)
+                .OrderByDescending(r => r.StartTime)
                 .FirstOrDefaultAsync(ct);
 
             int? burnedCalories = null;
@@ -157,7 +157,7 @@ namespace GradProject.Infrastructure.Services.Nutrition
                 else
                 {
                     // Calculate burned calories using profile (gender, height, weight) and run (distance, duration)
-                    burnedCalories = await CalculateBurnedCaloriesAsync(latestRun.DistanceMeters, latestRun.DurationSeconds, userId, ct);
+                    burnedCalories = await CalculateBurnedCaloriesAsync(latestRun.DistanceMeters, latestRun.MovingTimeSeconds, userId, ct);
                 }
             }
 

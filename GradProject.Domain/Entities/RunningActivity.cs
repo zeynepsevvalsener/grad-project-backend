@@ -14,6 +14,8 @@ namespace GradProject.Domain.Entities
 
         public DateTime StartTime { get; set; }
 
+        public DateOnly RunDate { get; set; }
+
         public double DistanceMeters { get; set; }
 
         public int MovingTimeSeconds { get; set; }
@@ -25,6 +27,10 @@ namespace GradProject.Domain.Entities
         public double AverageSpeed { get; set; }
 
         public double? AverageHeartRate { get; set; }
+
+        public int? BurnedCalories { get; set; }
+
+        public string Source { get; set; } = "STRAVA";
 
         public DateTime CreatedAt { get; set; }
 
