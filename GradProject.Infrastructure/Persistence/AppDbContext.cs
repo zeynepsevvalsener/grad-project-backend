@@ -119,6 +119,9 @@ namespace GradProject.Infrastructure.Persistence
                 e.Property(r => r.AverageSpeed)
                  .IsRequired();
 
+                e.Property(r => r.Route)
+                 .HasColumnType("geometry(LineString, 4326)");
+
                 e.HasIndex(r => new { r.UserId, r.ExternalActivityId })
                  .IsUnique()
                  .HasDatabaseName("IX_RunningActivities_UserId_ExternalActivityId");

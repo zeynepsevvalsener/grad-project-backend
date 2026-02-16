@@ -132,7 +132,9 @@ namespace GradProject.Infrastructure.Services
                     if (activity.TryGetProperty("type", out var typeElement) && 
                         typeElement.GetString()?.Equals("Run", StringComparison.OrdinalIgnoreCase) == true)
                     {
-                        return activity;
+                        // Fetch detailed activity to get route information
+                        var detailedActivity = await GetActivityDetailAsync(accessToken, activity);
+                        return detailedActivity ?? activity; // Fallback to summary if detail fails
                     }
                 }
 
@@ -174,7 +176,10 @@ namespace GradProject.Infrastructure.Services
                     if (activity.TryGetProperty("type", out var typeElement) && 
                         typeElement.GetString()?.Equals("Run", StringComparison.OrdinalIgnoreCase) == true)
                     {
-                        runActivities.Add(activity);
+                        // Fetch detailed activity to get route information
+                        var detailedActivity = await GetActivityDetailAsync(accessToken, activity);
+                        runActivities.Add(detailedActivity ?? activity); // Fallback to summary if detail fails
+                        
                         if (runActivities.Count >= limit)
                             break;
                     }
@@ -185,6 +190,42 @@ namespace GradProject.Infrastructure.Services
             catch
             {
                 return new List<JsonElement>();
+            }
+        }
+
+        /// <summary>
+        /// Fetches detailed activity information including route data from Strava API.
+        /// </summary>
+        public async Task<JsonElement?> GetActivityDetailAsync(string accessToken, JsonElement summaryActivity)
+        {
+            try
+            {
+                // Get activity ID from summary
+                if (!summaryActivity.TryGetProperty("id", out var idElement))
+                    return null;
+
+                var activityId = idElement.GetInt64();
+
+                // Fetch detailed activity endpoint which includes map data
+                var req = new HttpRequestMessage(HttpMethod.Get, $"https://www.strava.com/api/v3/activities/{activityId}");
+                req.Headers.Add("Authorization", $"Bearer {accessToken}");
+                
+                var res = await _httpClient.SendAsync(req);
+                var data = await res.Content.ReadAsStringAsync();
+
+                if (!res.IsSuccessStatusCode)
+                {
+                    // If detail fetch fails, return summary activity
+                    return summaryActivity;
+                }
+
+                var detailedActivity = JsonDocument.Parse(data).RootElement;
+                return detailedActivity;
+            }
+            catch
+            {
+                // If any error occurs, return summary activity as fallback
+                return summaryActivity;
             }
         }
     }

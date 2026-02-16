@@ -1,3 +1,5 @@
+using NetTopologySuite.Geometries;
+
 namespace GradProject.Domain.Entities
 {
     public class RunningActivity
@@ -35,6 +37,8 @@ namespace GradProject.Domain.Entities
         public DateTime CreatedAt { get; set; }
 
         public DateTime UpdatedAt { get; set; }
+
+        public LineString? Route { get; set; }
 
         // Navigation
         public User User { get; set; } = null!;
