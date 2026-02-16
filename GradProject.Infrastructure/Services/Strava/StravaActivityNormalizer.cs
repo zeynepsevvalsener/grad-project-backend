@@ -27,6 +27,7 @@ namespace GradProject.Infrastructure.Services.Strava
             public double AverageSpeed { get; init; }
             public double? AverageHeartRate { get; init; }
             public int? BurnedCalories { get; init; }
+            public string? SummaryPolyline { get; init; }
         }
 
         /// <summary>
@@ -100,6 +101,14 @@ namespace GradProject.Infrastructure.Services.Strava
                     burnedCalories = c;
             }
 
+            // --- Summary Polyline: optional, from map.summary_polyline ---
+            string? summaryPolyline = null;
+            if (activity.TryGetProperty("map", out var mapElement) && 
+                mapElement.ValueKind == JsonValueKind.Object)
+            {
+                summaryPolyline = GetString(mapElement, "summary_polyline");
+            }
+
             return new NormalizedActivity
             {
                 ExternalId = externalId,
@@ -113,7 +122,8 @@ namespace GradProject.Infrastructure.Services.Strava
                 TotalElevationGain = totalElevationGain,
                 AverageSpeed = averageSpeed,
                 AverageHeartRate = averageHeartRate,
-                BurnedCalories = burnedCalories
+                BurnedCalories = burnedCalories,
+                SummaryPolyline = summaryPolyline
             };
         }
 

@@ -5,10 +5,12 @@ using GradProject.Application.Interfaces;
 using GradProject.Application.Interfaces.Nutrition;
 using GradProject.Application.Interfaces.Gamification;
 using GradProject.Application.Interfaces.Running;
+using GradProject.Application.Services.Polyline;
 using GradProject.Application.Utilities;
 using GradProject.Application.Validators.Auth;
 using GradProject.Infrastructure.Persistence;
 using GradProject.Infrastructure.Services;
+using GradProject.Infrastructure.Services.Geometry;
 using GradProject.Infrastructure.Services.Nutrition;
 using GradProject.Infrastructure.Services.Gamification;
 using GradProject.Infrastructure.Services.Running;
@@ -28,9 +30,9 @@ DotNetEnv.Env.Load();
 
 var builder = WebApplication.CreateBuilder(args);
 var aiUrl = builder.Configuration.GetValue<string>("AiServiceSettings:BaseUrl") ?? "http://127.0.0.1:8000";
-// DbContext (PostgreSQL)
+// DbContext (PostgreSQL + PostGIS)
 builder.Services.AddDbContext<AppDbContext>(opt =>
-    opt.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
+    opt.UseNpgsql(builder.Configuration.GetConnectionString("Default"), o => o.UseNetTopologySuite()));
 
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
@@ -58,6 +60,9 @@ builder.Services.AddScoped<IMealService, MealService>();
 builder.Services.AddScoped<IChallengeService, ChallengeService>();
 builder.Services.AddScoped<IBadgeService, BadgeService>();
 builder.Services.AddScoped<IRunningAnalyticsService, RunningAnalyticsService>();
+builder.Services.AddSingleton<PolylineDecoder>();
+builder.Services.AddSingleton<GeometryConverter>();
+builder.Services.AddScoped<IRouteService, RouteService>();
 
 
 
@@ -138,6 +143,22 @@ builder.Services
     });
 
 builder.Services.AddAuthorization();
+
+// Rate Limiting (prepared for future use)
+// Uncomment when needed:
+// builder.Services.AddRateLimiter(options =>
+// {
+//     options.AddFixedWindowLimiter("RoutePolicy", opt =>
+//     {
+//         opt.Window = TimeSpan.FromMinutes(1);
+//         opt.PermitLimit = 60; // 60 requests per minute
+//         opt.QueueProcessingOrder = System.Threading.RateLimiting.QueueProcessingOrder.OldestFirst;
+//         opt.QueueLimit = 10;
+//     });
+// });
+// 
+// Then add to endpoint:
+// [EnableRateLimiting("RoutePolicy")]
 
 // CORS
 builder.Services.AddCors(options =>

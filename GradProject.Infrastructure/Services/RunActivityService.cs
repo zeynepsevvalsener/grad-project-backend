@@ -1,7 +1,9 @@
 using GradProject.Application.DTOs.Common;
 using GradProject.Application.Interfaces;
+using GradProject.Application.Services.Polyline;
 using GradProject.Domain.Entities;
 using GradProject.Infrastructure.Persistence;
+using GradProject.Infrastructure.Services.Geometry;
 using GradProject.Infrastructure.Services.Strava;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -13,15 +15,21 @@ namespace GradProject.Infrastructure.Services
         private readonly AppDbContext _db;
         private readonly StravaApiService _stravaApiService;
         private readonly ILogger<RunActivityService> _logger;
+        private readonly PolylineDecoder _polylineDecoder;
+        private readonly GeometryConverter _geometryConverter;
 
         public RunActivityService(
             AppDbContext db,
             StravaApiService stravaApiService,
-            ILogger<RunActivityService> logger)
+            ILogger<RunActivityService> logger,
+            PolylineDecoder polylineDecoder,
+            GeometryConverter geometryConverter)
         {
             _db = db;
             _stravaApiService = stravaApiService;
             _logger = logger;
+            _polylineDecoder = polylineDecoder;
+            _geometryConverter = geometryConverter;
         }
 
         public async Task<FetchLatestRunResult> FetchLatestStravaRunAsync(int userId, CancellationToken ct = default)
@@ -85,6 +93,14 @@ namespace GradProject.Infrastructure.Services
 
                 if (existingActivity != null)
                 {
+                    // Backfill route if missing (for activities synced before route feature was added)
+                    if (existingActivity.Route == null && !string.IsNullOrWhiteSpace(normalized.SummaryPolyline))
+                    {
+                        SetRouteFromPolyline(existingActivity, normalized.SummaryPolyline);
+                        existingActivity.UpdatedAt = DateTime.UtcNow;
+                        await _db.SaveChangesAsync(ct);
+                    }
+                    
                     return new FetchLatestRunResult
                     {
                         Success = true,
@@ -94,25 +110,8 @@ namespace GradProject.Infrastructure.Services
 
                 // Create new RunningActivity from normalized data
                 var now = DateTime.UtcNow;
-                var runningActivity = new RunningActivity
-                {
-                    UserId = userId,
-                    ExternalActivityId = normalized.ExternalId,
-                    Name = normalized.Name,
-                    Type = normalized.Type,
-                    StartTime = normalized.StartDateTime.UtcDateTime,
-                    RunDate = normalized.RunDate,
-                    DistanceMeters = normalized.DistanceMeters,
-                    MovingTimeSeconds = normalized.MovingTimeSeconds,
-                    ElapsedTimeSeconds = normalized.ElapsedTimeSeconds,
-                    TotalElevationGain = normalized.TotalElevationGain,
-                    AverageSpeed = normalized.AverageSpeed,
-                    AverageHeartRate = normalized.AverageHeartRate,
-                    BurnedCalories = normalized.BurnedCalories,
-                    Source = "STRAVA",
-                    CreatedAt = now,
-                    UpdatedAt = now
-                };
+                var runningActivity = CreateRunningActivityFromNormalized(userId, normalized, now);
+                SetRouteFromPolyline(runningActivity, normalized.SummaryPolyline);
 
                 _db.RunningActivities.Add(runningActivity);
                 await _db.SaveChangesAsync(ct);
@@ -198,30 +197,27 @@ namespace GradProject.Infrastructure.Services
 
                 if (existing != null)
                 {
+                    // Backfill route if missing (for activities synced before route feature was added)
+                    if (existing.Route == null && !string.IsNullOrWhiteSpace(normalized.SummaryPolyline))
+                    {
+                        _logger.LogInformation("Backfilling route for activity {ExternalId} (DB Id: {Id})", normalized.ExternalId, existing.Id);
+                        SetRouteFromPolyline(existing, normalized.SummaryPolyline);
+                        existing.UpdatedAt = now;
+                        await _db.SaveChangesAsync(ct);
+                        _logger.LogInformation("Route backfilled successfully for activity {ExternalId}", normalized.ExternalId);
+                    }
+                    else if (existing.Route == null)
+                    {
+                        _logger.LogDebug("Activity {ExternalId} has no route and Strava summary_polyline is empty", normalized.ExternalId);
+                    }
+                    
                     result.Add(MapToDto(existing));
                 }
                 else
                 {
                     // Create new activity to save
-                    var newActivity = new RunningActivity
-                    {
-                        UserId = userId,
-                        ExternalActivityId = normalized.ExternalId,
-                        Name = normalized.Name,
-                        Type = normalized.Type,
-                        StartTime = normalized.StartDateTime.UtcDateTime,
-                        RunDate = normalized.RunDate,
-                        DistanceMeters = normalized.DistanceMeters,
-                        MovingTimeSeconds = normalized.MovingTimeSeconds,
-                        ElapsedTimeSeconds = normalized.ElapsedTimeSeconds,
-                        TotalElevationGain = normalized.TotalElevationGain,
-                        AverageSpeed = normalized.AverageSpeed,
-                        AverageHeartRate = normalized.AverageHeartRate,
-                        BurnedCalories = normalized.BurnedCalories,
-                        Source = "STRAVA",
-                        CreatedAt = now,
-                        UpdatedAt = now
-                    };
+                    var newActivity = CreateRunningActivityFromNormalized(userId, normalized, now);
+                    SetRouteFromPolyline(newActivity, normalized.SummaryPolyline);
 
                     activitiesToSave.Add(newActivity);
                     result.Add(MapToDto(newActivity));
@@ -247,6 +243,59 @@ namespace GradProject.Infrastructure.Services
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// Creates a RunningActivity entity from normalized Strava activity data.
+        /// </summary>
+        private static RunningActivity CreateRunningActivityFromNormalized(
+            int userId,
+            StravaActivityNormalizer.NormalizedActivity normalized,
+            DateTime now)
+        {
+            return new RunningActivity
+            {
+                UserId = userId,
+                ExternalActivityId = normalized.ExternalId,
+                Name = normalized.Name,
+                Type = normalized.Type,
+                StartTime = normalized.StartDateTime.UtcDateTime,
+                RunDate = normalized.RunDate,
+                DistanceMeters = normalized.DistanceMeters,
+                MovingTimeSeconds = normalized.MovingTimeSeconds,
+                ElapsedTimeSeconds = normalized.ElapsedTimeSeconds,
+                TotalElevationGain = normalized.TotalElevationGain,
+                AverageSpeed = normalized.AverageSpeed,
+                AverageHeartRate = normalized.AverageHeartRate,
+                BurnedCalories = normalized.BurnedCalories,
+                Source = "STRAVA",
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+        }
+
+        /// <summary>
+        /// Decodes polyline and sets the route on the RunningActivity entity.
+        /// Handles errors gracefully - activity will be saved without route if decoding fails.
+        /// </summary>
+        private void SetRouteFromPolyline(RunningActivity activity, string? summaryPolyline)
+        {
+            if (string.IsNullOrWhiteSpace(summaryPolyline))
+                return;
+
+            try
+            {
+                var coordinates = _polylineDecoder.Decode(summaryPolyline);
+                if (coordinates != null)
+                {
+                    activity.Route = _geometryConverter.ToLineString(coordinates);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to decode polyline for activity {ExternalId}", activity.ExternalActivityId);
+                // Continue without route - activity will be saved without route
+            }
         }
 
         private static RunActivityDto MapToDto(RunningActivity entity)

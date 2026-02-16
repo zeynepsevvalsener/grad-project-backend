@@ -9,7 +9,7 @@ namespace GradProject.Infrastructure.Persistence
     {
         public AppDbContext CreateDbContext(string[] args)
         {
-            // EF Tools bazen DOTNET_ENVIRONMENT ile çalýþýr, bazen ASPNETCORE_ENVIRONMENT
+            // EF Tools bazen DOTNET_ENVIRONMENT ile ï¿½alï¿½ï¿½ï¿½r, bazen ASPNETCORE_ENVIRONMENT
             var environment =
                 Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
                 ?? Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")
@@ -27,7 +27,7 @@ namespace GradProject.Infrastructure.Persistence
             var connectionString = configuration.GetConnectionString("Default");
 
             var optionsBuilder = new DbContextOptionsBuilder<AppDbContext>();
-            optionsBuilder.UseNpgsql(connectionString);
+            optionsBuilder.UseNpgsql(connectionString, o => o.UseNetTopologySuite());
 
             return new AppDbContext(optionsBuilder.Options);
         }
