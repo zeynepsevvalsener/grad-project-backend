@@ -20,7 +20,25 @@ public class PolylineDecoderTests
         Assert.NotNull(result);
         Assert.Single(result);
         
+        // Debug: Print actual values
+        var actualLat = result[0].lat;
+        var actualLng = result[0].lng;
+        var expectedLat = 38.5;
+        var expectedLng = -120.2;
+        
         // Allow tolerance of 0.00001 as specified
+        var latDiff = Math.Abs(actualLat - expectedLat);
+        var lngDiff = Math.Abs(actualLng - expectedLng);
+        
+        // If test fails, show actual vs expected
+        if (latDiff >= 0.00001 || lngDiff >= 0.00001)
+        {
+            Assert.True(false, 
+                $"Expected: lat={expectedLat}, lng={expectedLng}. " +
+                $"Actual: lat={actualLat}, lng={actualLng}. " +
+                $"Diff: lat={latDiff}, lng={lngDiff}");
+        }
+        
         Assert.True(Math.Abs(result[0].lat - 38.5) < 0.00001);
         Assert.True(Math.Abs(result[0].lng - -120.2) < 0.00001);
     }

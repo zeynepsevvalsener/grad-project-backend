@@ -90,9 +90,64 @@ namespace GradProject.Infrastructure.Services.Running
                 Properties = new RoutePropertiesDto
                 {
                     RunId = activity.Id,
-                    Distance = activity.DistanceMeters
+                    Distance = activity.DistanceMeters,
+                    BoundingBox = activity.MinLat.HasValue && activity.MaxLat.HasValue && 
+                                 activity.MinLng.HasValue && activity.MaxLng.HasValue
+                        ? new BoundingBoxDto
+                        {
+                            MinLat = activity.MinLat.Value,
+                            MaxLat = activity.MaxLat.Value,
+                            MinLng = activity.MinLng.Value,
+                            MaxLng = activity.MaxLng.Value
+                        }
+                        : null,
+                    ConvexHull = activity.ConvexHull != null
+                        ? ConvertConvexHullToDto(activity.ConvexHull)
+                        : null
                 }
             };
+        }
+
+        private static ConvexHullDto? ConvertConvexHullToDto(NetTopologySuite.Geometries.Polygon convexHull)
+        {
+            if (convexHull == null || convexHull.IsEmpty)
+                return null;
+
+            try
+            {
+                // GeoJSON Polygon format: [[[lng, lat], [lng, lat], ...]]
+                // First ring is exterior ring, subsequent rings are holes
+                var coordinates = new List<double[][]>();
+                
+                // Exterior ring
+                var exteriorRing = new List<double[]>();
+                foreach (var coordinate in convexHull.ExteriorRing.Coordinates)
+                {
+                    exteriorRing.Add(new[] { coordinate.X, coordinate.Y }); // [lng, lat]
+                }
+                coordinates.Add(exteriorRing.ToArray());
+
+                // Interior rings (holes) - if any
+                for (int i = 0; i < convexHull.NumInteriorRings; i++)
+                {
+                    var interiorRing = new List<double[]>();
+                    foreach (var coordinate in convexHull.GetInteriorRingN(i).Coordinates)
+                    {
+                        interiorRing.Add(new[] { coordinate.X, coordinate.Y }); // [lng, lat]
+                    }
+                    coordinates.Add(interiorRing.ToArray());
+                }
+
+                return new ConvexHullDto
+                {
+                    Type = "Polygon",
+                    Coordinates = coordinates.ToArray()
+                };
+            }
+            catch
+            {
+                return null;
+            }
         }
     }
 }
