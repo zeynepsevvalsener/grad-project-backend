@@ -1,5 +1,6 @@
 using GradProject.Application.DTOs.Common;
 using GradProject.Application.Interfaces;
+using GradProject.Application.Interfaces.Gamification;
 using GradProject.Application.Interfaces.Geometry;
 using GradProject.Application.Services.Polyline;
 using GradProject.Domain.Entities;
@@ -20,6 +21,7 @@ namespace GradProject.Infrastructure.Services
         private readonly GeometryConverter _geometryConverter;
         private readonly IBoundingBoxService _boundingBoxService;
         private readonly IConvexHullService _convexHullService;
+        private readonly IChallengeProgressService _challengeProgressService;
 
         public RunActivityService(
             AppDbContext db,
@@ -28,7 +30,8 @@ namespace GradProject.Infrastructure.Services
             PolylineDecoder polylineDecoder,
             GeometryConverter geometryConverter,
             IBoundingBoxService boundingBoxService,
-            IConvexHullService convexHullService)
+            IConvexHullService convexHullService,
+            IChallengeProgressService challengeProgressService)
         {
             _db = db;
             _stravaApiService = stravaApiService;
@@ -37,6 +40,7 @@ namespace GradProject.Infrastructure.Services
             _geometryConverter = geometryConverter;
             _boundingBoxService = boundingBoxService;
             _convexHullService = convexHullService;
+            _challengeProgressService = challengeProgressService;
         }
 
         public async Task<FetchLatestRunResult> FetchLatestStravaRunAsync(int userId, CancellationToken ct = default)
@@ -122,6 +126,17 @@ namespace GradProject.Infrastructure.Services
 
                 _db.RunningActivities.Add(runningActivity);
                 await _db.SaveChangesAsync(ct);
+
+                // Update challenge progress (non-blocking)
+                try
+                {
+                    await _challengeProgressService.UpdateAfterRunSaved(runningActivity.Id, ct);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to update challenge progress for run {RunId}", runningActivity.Id);
+                    // Continue - don't break run save flow
+                }
 
                 return new FetchLatestRunResult
                 {
@@ -236,6 +251,20 @@ namespace GradProject.Infrastructure.Services
             {
                 _db.RunningActivities.AddRange(activitiesToSave);
                 await _db.SaveChangesAsync(ct);
+                
+                // Update challenge progress for each new activity (non-blocking)
+                foreach (var savedActivity in activitiesToSave)
+                {
+                    try
+                    {
+                        await _challengeProgressService.UpdateAfterRunSaved(savedActivity.Id, ct);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to update challenge progress for run {RunId}", savedActivity.Id);
+                        // Continue - don't break run save flow
+                    }
+                }
                 
                 // Update IDs in result for newly saved activities
                 for (int i = 0; i < activitiesToSave.Count; i++)

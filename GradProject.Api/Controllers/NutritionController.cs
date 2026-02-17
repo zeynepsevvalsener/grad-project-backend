@@ -1,12 +1,11 @@
-﻿using GradProject.Application.DTOs.Nutrition;
+﻿using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using GradProject.Application.DTOs.Nutrition;
 using GradProject.Application.DTOs.Nutrition.AI;
 using GradProject.Application.Interfaces.Nutrition;
 using GradProject.Application.Interfaces.Nutrition.AI;
-using GradProject.Infrastructure.Services.Nutrition;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
 
 namespace GradProject.Api.Controllers
 {
@@ -19,14 +18,14 @@ namespace GradProject.Api.Controllers
         private readonly INutritionTargetsService _nutritionTargetsService;
         private readonly IDailyIntakeAggregationService _dailyIntakeAggregationService;
         private readonly IMealParsingService _mealParsingService;
-
         private readonly IMealService _mealService;
+
         public NutritionController(
-        INutritionCalculationService nutritionCalculationService,
-        INutritionTargetsService nutritionTargetsService,
-        IDailyIntakeAggregationService dailyIntakeAggregationService,
-        IMealParsingService mealParsingService,
-        IMealService mealService)
+            INutritionCalculationService nutritionCalculationService,
+            INutritionTargetsService nutritionTargetsService,
+            IDailyIntakeAggregationService dailyIntakeAggregationService,
+            IMealParsingService mealParsingService,
+            IMealService mealService)
         {
             _nutritionCalculationService = nutritionCalculationService;
             _nutritionTargetsService = nutritionTargetsService;
@@ -56,23 +55,33 @@ namespace GradProject.Api.Controllers
         /// Aggregates daily intake for a specific date and updates/creates DailySummary
         /// </summary>
         [HttpPost("aggregate-intake")]
-        public async Task<IActionResult> AggregateDailyIntake([FromQuery] DateOnly date, CancellationToken ct)
+        public async Task<IActionResult> AggregateDailyIntake([FromQuery] string date, CancellationToken ct)
         {
+            if (!DateOnly.TryParse(date, out var dateOnly))
+            {
+                return BadRequest(new { message = "Invalid date format. Use yyyy-MM-dd format." });
+            }
+
             var userId = GetUserIdOrThrow();
-            await _dailyIntakeAggregationService.AggregateDailyIntakeAsync(userId, date, ct);
-            return Ok(new { message = $"Daily intake aggregated successfully for {date:yyyy-MM-dd}" });
+            await _dailyIntakeAggregationService.AggregateDailyIntakeAsync(userId, dateOnly, ct);
+            return Ok(new { message = $"Daily intake aggregated successfully for {dateOnly:yyyy-MM-dd}" });
         }
 
         /// <summary>
         /// Gets the daily summary (aggregated intake) for a specific date
         /// </summary>
         [HttpGet("daily-summary")]
-        public async Task<ActionResult<DailySummaryDto>> GetDailySummary([FromQuery] DateOnly date, CancellationToken ct)
+        public async Task<ActionResult<DailySummaryDto>> GetDailySummary([FromQuery] string date, CancellationToken ct)
         {
+            if (!DateOnly.TryParse(date, out var dateOnly))
+            {
+                return BadRequest(new { message = "Invalid date format. Use yyyy-MM-dd format." });
+            }
+
             var userId = GetUserIdOrThrow();
-            var summary = await _dailyIntakeAggregationService.GetDailySummaryAsync(userId, date, ct);
+            var summary = await _dailyIntakeAggregationService.GetDailySummaryAsync(userId, dateOnly, ct);
             return summary == null
-                ? NotFound(new { message = $"No daily summary found for {date:yyyy-MM-dd}" })
+                ? NotFound(new { message = $"No daily summary found for {dateOnly:yyyy-MM-dd}" })
                 : Ok(summary);
         }
 
@@ -133,9 +142,7 @@ namespace GradProject.Api.Controllers
 
         private int GetUserIdOrThrow()
         {
-            var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub)
-                      ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
-
+            var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
             if (string.IsNullOrWhiteSpace(sub) || !int.TryParse(sub, out var userId))
                 throw new UnauthorizedAccessException("Invalid token.");
 

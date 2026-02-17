@@ -82,7 +82,6 @@ namespace GradProject.Api.Controllers
 
         private int GetUserIdOrThrow()
         {
-            // We store user id in JWT "sub" claim
             var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
             if (string.IsNullOrWhiteSpace(sub) || !int.TryParse(sub, out var userId))
                 throw new UnauthorizedAccessException("Invalid token.");

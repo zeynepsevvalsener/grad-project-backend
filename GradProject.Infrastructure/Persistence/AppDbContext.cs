@@ -19,6 +19,7 @@ namespace GradProject.Infrastructure.Persistence
 
         public DbSet<Challenge> Challenges => Set<Challenge>();
         public DbSet<Badge> Badges => Set<Badge>();
+        public DbSet<UserChallenge> UserChallenges => Set<UserChallenge>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -420,6 +421,52 @@ namespace GradProject.Infrastructure.Persistence
                 e.ToTable(t =>
                 {
                     t.HasCheckConstraint("CK_Badges_PointsReward_NonNegative", "\"PointsReward\" >= 0");
+                });
+            });
+
+            // USER CHALLENGE
+            modelBuilder.Entity<UserChallenge>(e =>
+            {
+                e.HasKey(uc => uc.Id);
+
+                e.Property(uc => uc.JoinedAt)
+                 .IsRequired();
+
+                e.Property(uc => uc.ProgressDistanceMeters)
+                 .IsRequired()
+                 .HasDefaultValue(0L);
+
+                e.Property(uc => uc.ProgressCalories)
+                 .IsRequired()
+                 .HasDefaultValue(0);
+
+                e.Property(uc => uc.Completed)
+                 .IsRequired()
+                 .HasDefaultValue(false);
+
+                e.HasIndex(uc => new { uc.UserId, uc.ChallengeId })
+                 .IsUnique()
+                 .HasDatabaseName("IX_UserChallenges_UserId_ChallengeId");
+
+                e.HasIndex(uc => new { uc.UserId, uc.Completed })
+                 .HasDatabaseName("IX_UserChallenges_UserId_Completed");
+
+                e.HasOne(uc => uc.User)
+                 .WithMany()
+                 .HasForeignKey(uc => uc.UserId)
+                 .IsRequired()
+                 .OnDelete(DeleteBehavior.Cascade);
+
+                e.HasOne(uc => uc.Challenge)
+                 .WithMany()
+                 .HasForeignKey(uc => uc.ChallengeId)
+                 .IsRequired()
+                 .OnDelete(DeleteBehavior.Restrict);
+
+                e.ToTable(t =>
+                {
+                    t.HasCheckConstraint("CK_UserChallenges_ProgressDistanceMeters_NonNegative", "\"ProgressDistanceMeters\" >= 0");
+                    t.HasCheckConstraint("CK_UserChallenges_ProgressCalories_NonNegative", "\"ProgressCalories\" >= 0");
                 });
             });
         }

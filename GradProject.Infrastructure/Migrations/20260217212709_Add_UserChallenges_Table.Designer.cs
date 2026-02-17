@@ -3,6 +3,7 @@ using System;
 using GradProject.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NetTopologySuite.Geometries;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace GradProject.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260217212709_Add_UserChallenges_Table")]
+    partial class Add_UserChallenges_Table
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -613,11 +616,6 @@ namespace GradProject.Infrastructure.Migrations
                     b.Property<DateTime?>("LastUpdatedAt")
                         .HasColumnType("timestamp without time zone");
 
-                    b.Property<int>("ProgressCalories")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0);
-
                     b.Property<long>("ProgressDistanceMeters")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bigint")
@@ -645,8 +643,6 @@ namespace GradProject.Infrastructure.Migrations
 
                     b.ToTable("UserChallenges", t =>
                         {
-                            t.HasCheckConstraint("CK_UserChallenges_ProgressCalories_NonNegative", "\"ProgressCalories\" >= 0");
-
                             t.HasCheckConstraint("CK_UserChallenges_ProgressDistanceMeters_NonNegative", "\"ProgressDistanceMeters\" >= 0");
                         });
                 });
