@@ -1,5 +1,6 @@
 using GradProject.Application.DTOs.Common;
 using GradProject.Application.Interfaces;
+using GradProject.Application.Interfaces.Geometry;
 using GradProject.Application.Services.Polyline;
 using GradProject.Domain.Entities;
 using GradProject.Infrastructure.Persistence;
@@ -17,19 +18,25 @@ namespace GradProject.Infrastructure.Services
         private readonly ILogger<RunActivityService> _logger;
         private readonly PolylineDecoder _polylineDecoder;
         private readonly GeometryConverter _geometryConverter;
+        private readonly IBoundingBoxService _boundingBoxService;
+        private readonly IConvexHullService _convexHullService;
 
         public RunActivityService(
             AppDbContext db,
             StravaApiService stravaApiService,
             ILogger<RunActivityService> logger,
             PolylineDecoder polylineDecoder,
-            GeometryConverter geometryConverter)
+            GeometryConverter geometryConverter,
+            IBoundingBoxService boundingBoxService,
+            IConvexHullService convexHullService)
         {
             _db = db;
             _stravaApiService = stravaApiService;
             _logger = logger;
             _polylineDecoder = polylineDecoder;
             _geometryConverter = geometryConverter;
+            _boundingBoxService = boundingBoxService;
+            _convexHullService = convexHullService;
         }
 
         public async Task<FetchLatestRunResult> FetchLatestStravaRunAsync(int userId, CancellationToken ct = default)
@@ -276,6 +283,7 @@ namespace GradProject.Infrastructure.Services
 
         /// <summary>
         /// Decodes polyline and sets the route on the RunningActivity entity.
+        /// Also extracts and sets bounding box and convex hull metadata for spatial operations.
         /// Handles errors gracefully - activity will be saved without route if decoding fails.
         /// </summary>
         private void SetRouteFromPolyline(RunningActivity activity, string? summaryPolyline)
@@ -289,6 +297,45 @@ namespace GradProject.Infrastructure.Services
                 if (coordinates != null)
                 {
                     activity.Route = _geometryConverter.ToLineString(coordinates);
+
+                    // Extract bounding box and convex hull from the route
+                    if (activity.Route != null)
+                    {
+                        // Extract bounding box
+                        var bbox = _boundingBoxService.Extract(activity.Route);
+                        
+                        if (bbox != null)
+                        {
+                            // Validate bounding box values
+                            if (bbox.MinLat <= bbox.MaxLat && bbox.MinLng <= bbox.MaxLng)
+                            {
+                                activity.MinLat = bbox.MinLat;
+                                activity.MaxLat = bbox.MaxLat;
+                                activity.MinLng = bbox.MinLng;
+                                activity.MaxLng = bbox.MaxLng;
+                            }
+                            else
+                            {
+                                _logger.LogWarning(
+                                    "Invalid bounding box for activity {ExternalId}: MinLat={MinLat}, MaxLat={MaxLat}, MinLng={MinLng}, MaxLng={MaxLng}",
+                                    activity.ExternalActivityId, bbox.MinLat, bbox.MaxLat, bbox.MinLng, bbox.MaxLng);
+                                // Leave bounding box as null for invalid values
+                            }
+                        }
+
+                        // Extract convex hull
+                        var convexHull = _convexHullService.Extract(activity.Route);
+                        if (convexHull != null)
+                        {
+                            activity.ConvexHull = convexHull;
+                        }
+                        else
+                        {
+                            _logger.LogDebug(
+                                "Could not extract convex hull for activity {ExternalId} (may have insufficient points or collinear points)",
+                                activity.ExternalActivityId);
+                        }
+                    }
                 }
             }
             catch (Exception ex)

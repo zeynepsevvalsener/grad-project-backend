@@ -5,7 +5,9 @@ using GradProject.Application.Interfaces;
 using GradProject.Application.Interfaces.Nutrition;
 using GradProject.Application.Interfaces.Gamification;
 using GradProject.Application.Interfaces.Running;
+using GradProject.Application.Interfaces.Geometry;
 using GradProject.Application.Services.Polyline;
+using GradProject.Application.Services.Geometry;
 using GradProject.Application.Utilities;
 using GradProject.Application.Validators.Auth;
 using GradProject.Infrastructure.Persistence;
@@ -62,6 +64,8 @@ builder.Services.AddScoped<IBadgeService, BadgeService>();
 builder.Services.AddScoped<IRunningAnalyticsService, RunningAnalyticsService>();
 builder.Services.AddSingleton<PolylineDecoder>();
 builder.Services.AddSingleton<GeometryConverter>();
+builder.Services.AddScoped<IBoundingBoxService, BoundingBoxService>();
+builder.Services.AddScoped<IConvexHullService, ConvexHullService>();
 builder.Services.AddScoped<IRouteService, RouteService>();
 
 
@@ -194,6 +198,9 @@ if (!app.Environment.IsDevelopment())
 
 //  Exception handling
 app.UseMiddleware<ExceptionHandlingMiddleware>();
+
+// Static files (for route visualizer)
+app.UseStaticFiles();
 
 // order important
 app.UseCors("DevCorsPolicy");

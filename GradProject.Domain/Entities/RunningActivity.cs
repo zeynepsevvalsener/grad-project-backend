@@ -40,6 +40,16 @@ namespace GradProject.Domain.Entities
 
         public LineString? Route { get; set; }
 
+        public double? MinLat { get; set; }
+
+        public double? MaxLat { get; set; }
+
+        public double? MinLng { get; set; }
+
+        public double? MaxLng { get; set; }
+
+        public Polygon? ConvexHull { get; set; }
+
         // Navigation
         public User User { get; set; } = null!;
     }

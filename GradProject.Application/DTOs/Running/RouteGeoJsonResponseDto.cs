@@ -31,6 +31,30 @@ namespace GradProject.Application.DTOs.Running
         public int RunId { get; set; }
 
         public double Distance { get; set; }
+
+        public BoundingBoxDto? BoundingBox { get; set; }
+
+        public ConvexHullDto? ConvexHull { get; set; }
+    }
+
+    /// <summary>
+    /// Bounding box information for visualization.
+    /// </summary>
+    public class BoundingBoxDto
+    {
+        public double MinLat { get; set; }
+        public double MaxLat { get; set; }
+        public double MinLng { get; set; }
+        public double MaxLng { get; set; }
+    }
+
+    /// <summary>
+    /// Convex hull polygon information for visualization.
+    /// </summary>
+    public class ConvexHullDto
+    {
+        public string Type { get; set; } = "Polygon";
+        public double[][][] Coordinates { get; set; } = null!;
     }
 }
 
