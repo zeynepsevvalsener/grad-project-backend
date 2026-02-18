@@ -26,12 +26,13 @@ namespace GradProject.Api.Middlewares
             {
                 context.Response.StatusCode = StatusCodes.Status500InternalServerError;
                 context.Response.ContentType = "application/json";
+                var isDevelopment = context.RequestServices.GetService<IWebHostEnvironment>()?.IsDevelopment() == true;
                 await context.Response.WriteAsync(JsonSerializer.Serialize(new
                 {
                     message = "An unexpected error occurred.",
-                    detail = context.RequestServices.GetService<IWebHostEnvironment>()?.IsDevelopment() == true
-                        ? ex.Message
-                        : null
+                    detail = isDevelopment ? ex.Message : null,
+                    stackTrace = isDevelopment ? ex.StackTrace : null,
+                    innerException = isDevelopment && ex.InnerException != null ? ex.InnerException.Message : null
                 }));
             }
         }

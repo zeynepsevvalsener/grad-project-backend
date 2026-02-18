@@ -4,10 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using GradProject.Application.DTOs.Common;
 using GradProject.Application.Interfaces;
-using GradProject.Infrastructure.Persistence;
 using GradProject.Infrastructure.Services;
-using Microsoft.EntityFrameworkCore;
-using System.Threading.Tasks;
 
 namespace GradProject.Api.Controllers
 {
@@ -15,15 +12,18 @@ namespace GradProject.Api.Controllers
     [Route("api/v1/strava")]
     public class StravaController : ControllerBase
     {
-        private readonly StravaApiService _stravaService;
+        private readonly StravaApiService _stravaApiService;
         private readonly IRunActivityService _runActivityService;
-        private readonly AppDbContext _db;
+        private readonly IStravaService _stravaService;
 
-        public StravaController(StravaApiService stravaService, IRunActivityService runActivityService, AppDbContext db)
+        public StravaController(
+            StravaApiService stravaApiService,
+            IRunActivityService runActivityService,
+            IStravaService stravaService)
         {
-            _stravaService = stravaService;
+            _stravaApiService = stravaApiService;
             _runActivityService = runActivityService;
-            _db = db;
+            _stravaService = stravaService;
         }
 
         [HttpGet("connect")]
@@ -32,12 +32,12 @@ namespace GradProject.Api.Controllers
             if (string.IsNullOrEmpty(userId))
                 return BadRequest("userId zorunlu");
 
-            var url = _stravaService.GetAuthorizeUrl(userId);
+            var url = _stravaApiService.GetAuthorizeUrl(userId);
             return Redirect(url);
         }
 
         [HttpGet("callback")]
-        public async Task<IActionResult> Callback([FromQuery] string code, [FromQuery] string state)
+        public async Task<IActionResult> Callback([FromQuery] string code, [FromQuery] string state, CancellationToken ct)
         {
             if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(state))
                 return BadRequest("Eksik parametre");
@@ -46,22 +46,24 @@ namespace GradProject.Api.Controllers
                 return BadRequest("Geçersiz userId");
 
             // Exchange code for token
-            var tokenResponse = await _stravaService.ExchangeCodeForTokenAsync(code);
+            var tokenResponse = await _stravaApiService.ExchangeCodeForTokenAsync(code);
             if (tokenResponse == null)
                 return StatusCode(500, "Token alma hatası");
 
-            // Save token to User entity
-            var user = await _db.Users.FindAsync(userId);
-            if (user == null)
+            if (tokenResponse.ExpiresAt == null || tokenResponse.AthleteId == null)
+                return StatusCode(500, "Token response eksik bilgi içeriyor");
+
+            // Save token to User entity via service
+            var saved = await _stravaService.SaveStravaTokenAsync(
+                userId,
+                tokenResponse.AccessToken,
+                tokenResponse.RefreshToken ?? string.Empty,
+                tokenResponse.ExpiresAt.Value,
+                tokenResponse.AthleteId.Value,
+                ct);
+
+            if (!saved)
                 return NotFound("User not found");
-
-            user.StravaAccessToken = tokenResponse.AccessToken;
-            user.StravaRefreshToken = tokenResponse.RefreshToken;
-            user.StravaTokenExpiresAt = tokenResponse.ExpiresAt;
-            user.StravaAthleteId = tokenResponse.AthleteId;
-            user.StravaConnectedAt = DateTime.UtcNow;
-
-            await _db.SaveChangesAsync();
 
             return Ok(new { message = "Strava bağlantısı başarılı", athleteId = tokenResponse.AthleteId });
         }
@@ -71,18 +73,12 @@ namespace GradProject.Api.Controllers
         public async Task<IActionResult> Me(CancellationToken ct)
         {
             var userId = GetUserIdOrThrow();
-            
-            var user = await _db.Users
-                .AsNoTracking()
-                .FirstOrDefaultAsync(u => u.Id == userId, ct);
-            
-            if (user == null)
-                return NotFound("User not found");
-            
-            if (string.IsNullOrWhiteSpace(user.StravaAccessToken))
+
+            var accessToken = await _stravaService.GetStravaAccessTokenAsync(userId, ct);
+            if (string.IsNullOrWhiteSpace(accessToken))
                 return BadRequest("Strava connection is required");
-            
-            var result = await _stravaService.GetAthleteInfo(user.StravaAccessToken);
+
+            var result = await _stravaApiService.GetAthleteInfo(accessToken);
             return Content(result, "application/json");
         }
 

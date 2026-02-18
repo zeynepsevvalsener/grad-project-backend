@@ -1,18 +1,27 @@
 using GradProject.Application.DTOs.Nutrition;
+using GradProject.Application.Interfaces.Gamification;
 using GradProject.Application.Interfaces.Nutrition;
 using GradProject.Domain.Entities;
 using GradProject.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace GradProject.Infrastructure.Services.Nutrition
 {
     public class DailyIntakeAggregationService : IDailyIntakeAggregationService
     {
         private readonly AppDbContext _db;
+        private readonly IChallengeProgressService _challengeProgressService;
+        private readonly ILogger<DailyIntakeAggregationService> _logger;
 
-        public DailyIntakeAggregationService(AppDbContext db)
+        public DailyIntakeAggregationService(
+            AppDbContext db,
+            IChallengeProgressService challengeProgressService,
+            ILogger<DailyIntakeAggregationService> logger)
         {
             _db = db;
+            _challengeProgressService = challengeProgressService;
+            _logger = logger;
         }
 
         public async Task AggregateDailyIntakeAsync(int userId, DateOnly date, CancellationToken ct = default)
@@ -20,9 +29,18 @@ namespace GradProject.Infrastructure.Services.Nutrition
 
             var start = date.ToDateTime(TimeOnly.MinValue);
             var end = start.AddDays(1);
+            
+            // Get ConsumedFoods for the date
             var consumedFoods = await _db.ConsumedFoods
                 .Include(cf => cf.Food)
                 .Where(cf => cf.UserId == userId && cf.ConsumedAt >= start && cf.ConsumedAt < end)
+                .ToListAsync(ct);
+
+            // Get Meals with MealFoods for the date
+            var meals = await _db.Meals
+                .Include(m => m.MealFoods)
+                    .ThenInclude(mf => mf.Food)
+                .Where(m => m.UserId == userId && m.LoggedAt >= start && m.LoggedAt < end)
                 .ToListAsync(ct);
 
             var totalCalories = 0;
@@ -30,6 +48,7 @@ namespace GradProject.Infrastructure.Services.Nutrition
             var totalCarbs = 0m;
             var totalFat = 0m;
 
+            // Calculate from ConsumedFoods
             foreach (var consumedFood in consumedFoods)
             {
                 var multiplier = consumedFood.PortionG / 100m;
@@ -37,6 +56,29 @@ namespace GradProject.Infrastructure.Services.Nutrition
                 totalProtein += consumedFood.Food.ProteinG * multiplier;
                 totalCarbs += consumedFood.Food.CarbG * multiplier;
                 totalFat += consumedFood.Food.FatG * multiplier;
+            }
+
+            // Calculate from MealFoods (Meals)
+            foreach (var meal in meals)
+            {
+                foreach (var mealFood in meal.MealFoods)
+                {
+                    // Convert quantity to grams based on unit
+                    decimal portionG = mealFood.Unit.ToLower() switch
+                    {
+                        "g" or "gram" or "grams" => mealFood.Quantity,
+                        "kg" or "kilogram" or "kilograms" => mealFood.Quantity * 1000m,
+                        "oz" or "ounce" or "ounces" => mealFood.Quantity * 28.35m,
+                        "lb" or "pound" or "pounds" => mealFood.Quantity * 453.592m,
+                        _ => mealFood.Quantity // Default: assume grams
+                    };
+
+                    var multiplier = portionG / 100m;
+                    totalCalories += (int)Math.Round(mealFood.Food.Kcal * multiplier);
+                    totalProtein += mealFood.Food.ProteinG * multiplier;
+                    totalCarbs += mealFood.Food.CarbG * multiplier;
+                    totalFat += mealFood.Food.FatG * multiplier;
+                }
             }
 
             // Get latest run for the date to calculate burned calories
@@ -57,6 +99,9 @@ namespace GradProject.Infrastructure.Services.Nutrition
 
             var dailySummary = await _db.DailySummaries
                 .FirstOrDefaultAsync(ds => ds.UserId == userId && ds.Date == date, ct);
+
+            var previousCalories = dailySummary?.TotalIntakeCalories ?? 0;
+            var caloriesDifference = totalCalories - previousCalories;
 
             if (dailySummary == null)
             {
@@ -80,6 +125,30 @@ namespace GradProject.Infrastructure.Services.Nutrition
             }
 
             await _db.SaveChangesAsync(ct);
+
+            // Update challenge progress with total calories for the day (non-blocking)
+            // The service will handle incremental updates by tracking which calories have already been counted
+            _logger.LogInformation("Aggregating daily intake for user {UserId} on date {Date}: TotalCalories={TotalCalories}, ConsumedFoods={ConsumedFoodsCount}, Meals={MealsCount}", 
+                userId, date, totalCalories, consumedFoods.Count, meals.Count);
+            
+            if (totalCalories > 0)
+            {
+                try
+                {
+                    _logger.LogInformation("Updating challenge progress for user {UserId} on date {Date} with {TotalCalories} calories", userId, date, totalCalories);
+                    await _challengeProgressService.UpdateAfterNutritionSaved(userId, totalCalories, date, ct);
+                    _logger.LogInformation("Challenge progress updated successfully for user {UserId} on date {Date}", userId, date);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to update challenge progress for nutrition data for user {UserId} on date {Date}", userId, date);
+                    // Continue - don't break aggregation flow
+                }
+            }
+            else
+            {
+                _logger.LogDebug("No calories to update challenge progress for user {UserId} on date {Date}", userId, date);
+            }
         }
 
         private async Task<int?> CalculateBurnedCaloriesAsync(double distanceMeters, int durationSeconds, int userId, CancellationToken ct)

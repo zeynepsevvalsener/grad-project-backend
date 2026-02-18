@@ -112,6 +112,91 @@ namespace GradProject.Infrastructure.Services.Gamification
             return true;
         }
 
+        public async Task<JoinChallengeResponseDto> JoinChallengeAsync(int userId, int challengeId, CancellationToken ct = default)
+        {
+            // Load Challenge by challengeId
+            var challenge = await _db.Challenges
+                .FirstOrDefaultAsync(c => c.Id == challengeId, ct);
+
+            // Validate: Challenge exists
+            if (challenge == null)
+                throw new KeyNotFoundException("Challenge not found");
+
+            // Validate: IsActive
+            if (!challenge.IsActive)
+                throw new InvalidOperationException("Challenge is not active");
+
+            // Check if UserChallenge exists
+            var existingUserChallenge = await _db.UserChallenges
+                .Include(uc => uc.Challenge)
+                .FirstOrDefaultAsync(uc => uc.UserId == userId && uc.ChallengeId == challengeId, ct);
+
+            UserChallenge userChallenge;
+
+            if (existingUserChallenge != null)
+            {
+                // Already joined - return existing record (idempotent)
+                userChallenge = existingUserChallenge;
+            }
+            else
+            {
+                // Create new UserChallenge
+                var now = DateTime.UtcNow;
+                userChallenge = new UserChallenge
+                {
+                    UserId = userId,
+                    ChallengeId = challengeId,
+                    ProgressDistanceMeters = 0,
+                    ProgressCalories = 0,
+                    Completed = false,
+                    JoinedAt = now
+                };
+
+                _db.UserChallenges.Add(userChallenge);
+                await _db.SaveChangesAsync(ct);
+
+                // Reload with Challenge navigation
+                userChallenge = await _db.UserChallenges
+                    .Include(uc => uc.Challenge)
+                    .FirstAsync(uc => uc.Id == userChallenge.Id, ct);
+            }
+
+            // Map to JoinChallengeResponseDto
+            return MapToJoinResponseDto(userChallenge);
+        }
+
+        private static JoinChallengeResponseDto MapToJoinResponseDto(UserChallenge userChallenge)
+        {
+            var targetValue = userChallenge.Challenge.TargetValue;
+            double progressPercent = 0;
+
+            // Calculate progress percent based on challenge metric
+            if (userChallenge.Challenge.Metric == Domain.Enums.ChallengeMetric.Distance)
+            {
+                progressPercent = targetValue > 0
+                    ? Math.Min(100, (userChallenge.ProgressDistanceMeters / targetValue) * 100)
+                    : 0;
+            }
+            else if (userChallenge.Challenge.Metric == Domain.Enums.ChallengeMetric.Calories)
+            {
+                progressPercent = targetValue > 0
+                    ? Math.Min(100, (userChallenge.ProgressCalories / targetValue) * 100)
+                    : 0;
+            }
+
+            return new JoinChallengeResponseDto
+            {
+                ChallengeId = userChallenge.ChallengeId,
+                ProgressDistanceMeters = userChallenge.ProgressDistanceMeters,
+                ProgressCalories = userChallenge.ProgressCalories,
+                TargetValue = targetValue,
+                Completed = userChallenge.Completed,
+                JoinedAt = userChallenge.JoinedAt,
+                CompletedAt = userChallenge.CompletedAt,
+                ProgressPercent = progressPercent
+            };
+        }
+
         private static ChallengeResponseDto MapToResponseDto(Challenge challenge)
         {
             var typeName = challenge.Type switch

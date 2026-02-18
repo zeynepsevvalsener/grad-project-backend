@@ -96,27 +96,9 @@ namespace GradProject.Api.Controllers
 
         private int GetUserIdOrThrow()
         {
-            // Check if user is authenticated
-            if (User?.Identity == null || !User.Identity.IsAuthenticated)
-            {
-                // Check if Authorization header exists
-                var authHeader = Request.Headers["Authorization"].FirstOrDefault();
-                if (string.IsNullOrEmpty(authHeader))
-                {
-                    throw new UnauthorizedAccessException("Authorization header is missing. Please include 'Authorization: Bearer {token}' header.");
-                }
-                
-                if (!authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-                {
-                    throw new UnauthorizedAccessException("Invalid Authorization header format. Expected 'Bearer {token}'.");
-                }
-                
-                throw new UnauthorizedAccessException("User is not authenticated. Token may be invalid or expired.");
-            }
-
             var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
             if (string.IsNullOrWhiteSpace(sub) || !int.TryParse(sub, out var userId))
-                throw new UnauthorizedAccessException("Invalid token: User ID not found in token claims.");
+                throw new UnauthorizedAccessException("Invalid token.");
 
             return userId;
         }

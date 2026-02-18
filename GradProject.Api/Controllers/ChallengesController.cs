@@ -1,3 +1,5 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using FluentValidation;
 using GradProject.Application.DTOs.Gamification;
 using GradProject.Application.Interfaces.Gamification;
@@ -87,6 +89,37 @@ namespace GradProject.Api.Controllers
         {
             var ok = await _service.DeleteAsync(id, ct);
             return ok ? NoContent() : NotFound();
+        }
+
+        [HttpPost("{challengeId:int}/join")]
+        public async Task<ActionResult<JoinChallengeResponseDto>> JoinChallenge(int challengeId, CancellationToken ct)
+        {
+            var userId = GetUserIdOrThrow();
+
+            try
+            {
+                var result = await _service.JoinChallengeAsync(userId, challengeId, ct);
+                return Ok(result);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                // TODO: use localization when HLN-6 ready
+                return NotFound(new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                // TODO: use localization when HLN-6 ready
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        private int GetUserIdOrThrow()
+        {
+            var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrWhiteSpace(sub) || !int.TryParse(sub, out var userId))
+                throw new UnauthorizedAccessException("Invalid token.");
+
+            return userId;
         }
     }
 }

@@ -32,6 +32,11 @@ DotNetEnv.Env.Load();
 
 var builder = WebApplication.CreateBuilder(args);
 var aiUrl = builder.Configuration.GetValue<string>("AiServiceSettings:BaseUrl") ?? "http://127.0.0.1:8000";
+// Validate aiUrl to prevent Invalid URI errors
+if (string.IsNullOrWhiteSpace(aiUrl) || !Uri.TryCreate(aiUrl, UriKind.Absolute, out _))
+{
+    aiUrl = "http://127.0.0.1:8000"; // Fallback to default
+}
 // DbContext (PostgreSQL + PostGIS)
 builder.Services.AddDbContext<AppDbContext>(opt =>
     opt.UseNpgsql(builder.Configuration.GetConnectionString("Default"), o => o.UseNetTopologySuite()));
@@ -57,9 +62,20 @@ builder.Services.AddScoped<IFoodSearchService, FoodSearchService>();
 builder.Services.AddScoped<IRunActivityService, RunActivityService>();
 builder.Services.AddScoped<IDailyIntakeAggregationService, DailyIntakeAggregationService>();
 //builder.Services.AddScoped<IMealParsingService, MealParsingService>(); şimdilik alttakine çevirdim denemek için.
-builder.Services.AddHttpClient<IMealParsingService, MealParsingService>(client =>{client.BaseAddress = new Uri(aiUrl);});
+builder.Services.AddHttpClient<IMealParsingService, MealParsingService>(client =>
+{
+    if (!string.IsNullOrWhiteSpace(aiUrl) && Uri.TryCreate(aiUrl, UriKind.Absolute, out var uri))
+    {
+        client.BaseAddress = uri;
+    }
+    else
+    {
+        client.BaseAddress = new Uri("http://127.0.0.1:8000"); // Fallback
+    }
+});
 builder.Services.AddScoped<IMealService, MealService>();
 builder.Services.AddScoped<IChallengeService, ChallengeService>();
+builder.Services.AddScoped<IChallengeProgressService, ChallengeProgressService>();
 builder.Services.AddScoped<IBadgeService, BadgeService>();
 builder.Services.AddScoped<IRunningAnalyticsService, RunningAnalyticsService>();
 builder.Services.AddSingleton<PolylineDecoder>();
@@ -67,6 +83,7 @@ builder.Services.AddSingleton<GeometryConverter>();
 builder.Services.AddScoped<IBoundingBoxService, BoundingBoxService>();
 builder.Services.AddScoped<IConvexHullService, ConvexHullService>();
 builder.Services.AddScoped<IRouteService, RouteService>();
+builder.Services.AddScoped<IStravaService, StravaService>();
 
 
 
@@ -79,6 +96,11 @@ builder.Services.AddControllers()
     .AddJsonOptions(opt =>
     {
         opt.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+    })
+    .ConfigureApiBehaviorOptions(options =>
+    {
+        // Ensure DateOnly and TimeOnly are properly handled in query strings
+        options.SuppressModelStateInvalidFilter = false;
     });
 
 // FluentValidation validators DI
