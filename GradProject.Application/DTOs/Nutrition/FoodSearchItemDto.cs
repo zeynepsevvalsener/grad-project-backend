@@ -3,7 +3,13 @@
     public class FoodSearchItemDto
     {
         public int Id { get; set; }
+
+        // Canonical name (DB)
         public string Name { get; set; } = null!;
+
+        // Localized display name (NEW)
+        public string DisplayName { get; set; } = null!;
+
         public string Category { get; set; } = null!;
 
         public decimal Kcal { get; set; }
