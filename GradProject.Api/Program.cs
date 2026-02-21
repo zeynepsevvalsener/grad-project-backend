@@ -84,7 +84,10 @@ builder.Services.AddScoped<IBoundingBoxService, BoundingBoxService>();
 builder.Services.AddScoped<IConvexHullService, ConvexHullService>();
 builder.Services.AddScoped<IRouteService, RouteService>();
 builder.Services.AddScoped<IStravaService, StravaService>();
-
+builder.Services.AddScoped<ILanguageResolver, LanguageResolver>();
+builder.Services.AddScoped<ICurrentLanguage, CurrentLanguage>();
+builder.Services.AddTransient<RequestLanguageMiddleware>();
+builder.Services.AddScoped<ILocalizationService, LocalizationService>();
 
 
 
@@ -228,6 +231,7 @@ app.UseStaticFiles();
 app.UseCors("DevCorsPolicy");
 
 app.UseAuthentication();
+app.UseMiddleware<RequestLanguageMiddleware>();
 app.UseAuthorization();
 
 app.MapControllers();

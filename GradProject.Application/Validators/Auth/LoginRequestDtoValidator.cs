@@ -8,12 +8,12 @@ namespace GradProject.Application.Validators.Auth
         public LoginRequestDtoValidator()
         {
             RuleFor(x => x.Email)
-                .NotEmpty()
-                .EmailAddress()
-                .MaximumLength(256);
+                .NotEmpty().WithMessage("validation.email.required")
+                .EmailAddress().WithMessage("validation.email.invalid")
+                .MaximumLength(256).WithMessage("validation.email.maxLength");
 
             RuleFor(x => x.Password)
-                .NotEmpty();
+                .NotEmpty().WithMessage("validation.password.required");
         }
     }
 }

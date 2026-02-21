@@ -75,5 +75,19 @@ namespace GradProject.Infrastructure.Services
                 ActivityLevel = profile.ActivityLevel
             };
         }
+        public async Task UpdateMyLanguageAsync(int userId, string language, CancellationToken ct = default)
+        {
+            // user exists + update language
+            var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct);
+            if (user is null)
+                throw new UnauthorizedAccessException("Invalid user.");
+
+            // no-op if same
+            if (string.Equals(user.Language, language, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            user.Language = language;
+            await _db.SaveChangesAsync(ct);
+        }
     }
 }

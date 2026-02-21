@@ -27,7 +27,8 @@ namespace GradProject.Infrastructure.Services
             {
                 new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
                 new(JwtRegisteredClaimNames.Email, user.Email),
-                new(ClaimTypes.Role, user.Role.ToString())
+                new(ClaimTypes.Role, user.Role.ToString()),
+                new("lang", string.IsNullOrWhiteSpace(user.Language) ? "en" : user.Language)
             };
 
             var keyBytes = Encoding.UTF8.GetBytes(_options.Key);

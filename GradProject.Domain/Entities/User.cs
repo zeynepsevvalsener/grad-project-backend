@@ -22,5 +22,6 @@ namespace GradProject.Domain.Entities
 
         // 1-1 Profile
         public Profile? Profile { get; set; }
+        public string Language { get; set; } = "en"; // "tr" | "en"
     }
 }
