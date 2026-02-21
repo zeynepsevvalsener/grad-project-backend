@@ -30,8 +30,7 @@ namespace GradProject.Application.Validators.Nutrition
             RuleFor(x => x.DefaultPortionG)
                 .GreaterThan(0);
 
-            RuleForEach(x => x.Aliases)
-                .MaximumLength(100);
+           
         }
     }
 }

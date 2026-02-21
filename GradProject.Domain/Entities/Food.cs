@@ -28,7 +28,5 @@
         // e.g., "USDA"
         public string Source { get; set; } = null!;
 
-        // Turkish aliases etc. (PostgreSQL text[])
-        public string[] Aliases { get; set; } = [];
     }
 }

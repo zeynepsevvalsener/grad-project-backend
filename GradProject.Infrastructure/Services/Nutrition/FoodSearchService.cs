@@ -21,16 +21,15 @@ namespace GradProject.Infrastructure.Services.Nutrition
             int pageSize,
             CancellationToken ct = default)
         {
-            // normalize paging
             if (page < 1) page = 1;
             if (pageSize < 1) pageSize = 20;
             if (pageSize > 100) pageSize = 100;
 
             var q = (query ?? string.Empty).Trim();
 
-            IQueryable<Domain.Entities.Food> baseQuery = _db.Foods.AsNoTracking();
+            IQueryable<Domain.Entities.Food> baseQuery =
+                _db.Foods.AsNoTracking();
 
-            // If empty query -> return paged list (by name)
             if (string.IsNullOrWhiteSpace(q))
             {
                 return await ToPagedResultAsync(
@@ -42,7 +41,7 @@ namespace GradProject.Infrastructure.Services.Nutrition
 
             var qLower = q.ToLowerInvariant();
 
-            // 1) Category detection: if q matches any category exactly (case-insensitive)
+            // CATEGORY DETECTION
             var isCategoryQuery = await baseQuery
                 .AnyAsync(f => f.Category.ToLower() == qLower, ct);
 
@@ -50,20 +49,28 @@ namespace GradProject.Infrastructure.Services.Nutrition
 
             if (isCategoryQuery)
             {
-                // list all foods in that category
                 filtered = baseQuery
                     .Where(f => f.Category.ToLower() == qLower)
                     .OrderBy(f => f.Name);
             }
             else
             {
-                // 2) text search in name + aliases (case-insensitive contains)
                 var pattern = $"%{q}%";
+
+                // Alias eşleşen FoodId'leri bul
+                var aliasFoodIds = await _db.FoodAliases
+                    .AsNoTracking()
+                    .Where(a =>
+                        EF.Functions.ILike(a.Alias, pattern) ||
+                        EF.Functions.ILike(a.NormalizedAlias, pattern))
+                    .Select(a => a.FoodId)
+                    .Distinct()
+                    .ToListAsync(ct);
 
                 filtered = baseQuery
                     .Where(f =>
                         EF.Functions.ILike(f.Name, pattern) ||
-                        (f.Aliases != null && f.Aliases.Any(a => EF.Functions.ILike(a, pattern))))
+                        aliasFoodIds.Contains(f.Id))
                     .OrderBy(f => f.Name);
             }
 
@@ -79,36 +86,45 @@ namespace GradProject.Infrastructure.Services.Nutrition
             var totalCount = await query.CountAsync(ct);
             var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
 
-            // if page beyond range, return empty page (safe for frontend)
             if (totalPages > 0 && page > totalPages)
                 page = totalPages;
 
             var skip = (page - 1) * pageSize;
 
-            var items = await query
+            var foods = await query
                 .Skip(skip)
                 .Take(pageSize)
-                .Select(f => new FoodSearchItemDto
-                {
-                    Id = f.Id,
-                    Name = f.Name,
-                    Category = f.Category,
-
-                    Kcal = f.Kcal,
-                    ProteinG = f.ProteinG,
-                    FatG = f.FatG,
-                    CarbG = f.CarbG,
-
-                    SugarG = f.SugarG,
-                    FiberG = f.FiberG,
-                    SodiumMg = f.SodiumMg,
-
-                    DefaultPortionG = f.DefaultPortionG,
-
-                    Source = f.Source,
-                    Aliases = f.Aliases ?? Array.Empty<string>()
-                })
                 .ToListAsync(ct);
+
+            var foodIds = foods.Select(f => f.Id).ToList();
+
+            var aliasMap = await _db.FoodAliases
+                .AsNoTracking()
+                .Where(a => foodIds.Contains(a.FoodId))
+                .GroupBy(a => a.FoodId)
+                .ToDictionaryAsync(
+                    g => g.Key,
+                    g => g.Select(x => x.Alias).ToArray(),
+                    ct);
+
+            var items = foods.Select(f => new FoodSearchItemDto
+            {
+                Id = f.Id,
+                Name = f.Name,
+                Category = f.Category,
+
+                Kcal = f.Kcal,
+                ProteinG = f.ProteinG,
+                FatG = f.FatG,
+                CarbG = f.CarbG,
+
+                SugarG = f.SugarG,
+                FiberG = f.FiberG,
+                SodiumMg = f.SodiumMg,
+
+                DefaultPortionG = f.DefaultPortionG,
+                Source = f.Source
+            }).ToList();
 
             return new PagedResultDto<FoodSearchItemDto>
             {

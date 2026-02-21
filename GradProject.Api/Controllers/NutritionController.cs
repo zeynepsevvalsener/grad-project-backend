@@ -4,8 +4,10 @@ using GradProject.Application.DTOs.Nutrition;
 using GradProject.Application.DTOs.Nutrition.AI;
 using GradProject.Application.Interfaces.Nutrition;
 using GradProject.Application.Interfaces.Nutrition.AI;
+using GradProject.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace GradProject.Api.Controllers
 {
@@ -19,21 +21,23 @@ namespace GradProject.Api.Controllers
         private readonly IDailyIntakeAggregationService _dailyIntakeAggregationService;
         private readonly IMealParsingService _mealParsingService;
         private readonly IMealService _mealService;
+        private readonly AppDbContext _db;
 
         public NutritionController(
             INutritionCalculationService nutritionCalculationService,
             INutritionTargetsService nutritionTargetsService,
             IDailyIntakeAggregationService dailyIntakeAggregationService,
             IMealParsingService mealParsingService,
-            IMealService mealService)
+            IMealService mealService,
+            AppDbContext db)
         {
             _nutritionCalculationService = nutritionCalculationService;
             _nutritionTargetsService = nutritionTargetsService;
             _dailyIntakeAggregationService = dailyIntakeAggregationService;
             _mealParsingService = mealParsingService;
             _mealService = mealService;
+            _db = db;
         }
-
 
         [HttpGet("tdee")]
         public async Task<ActionResult<TdeeResultDto>> GetMyTdee(CancellationToken ct)
@@ -93,6 +97,24 @@ namespace GradProject.Api.Controllers
         {
             var userId = GetUserIdOrThrow();
 
+            // Language auto-resolve:
+            // 1) request.Language varsa onu kullan (override)
+            // 2) yoksa DB(User.Language)
+            // 3) yoksa Accept-Language header
+            // 4) yoksa "en"
+            if (string.IsNullOrWhiteSpace(request.Language))
+            {
+                var userLang = await _db.Users
+                    .AsNoTracking()
+                    .Where(u => u.Id == userId)
+                    .Select(u => u.Language)
+                    .FirstOrDefaultAsync(ct);
+
+                request.Language = !string.IsNullOrWhiteSpace(userLang)
+                    ? userLang
+                    : GetLangFromHeader() ?? "en";
+            }
+
             var parseResult = await _mealParsingService.ParseAsync(userId, request, ct);
 
             var validItems = parseResult.Items
@@ -139,7 +161,6 @@ namespace GradProject.Api.Controllers
             return Domain.Enums.MealType.SNACK;
         }
 
-
         private int GetUserIdOrThrow()
         {
             var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -147,6 +168,24 @@ namespace GradProject.Api.Controllers
                 throw new UnauthorizedAccessException("Invalid token.");
 
             return userId;
+        }
+
+        private string? GetLangFromHeader()
+        {
+            if (!Request.Headers.TryGetValue("Accept-Language", out var values))
+                return null;
+
+            var raw = values.ToString();
+            if (string.IsNullOrWhiteSpace(raw))
+                return null;
+
+            // "tr-TR,tr;q=0.9,en;q=0.8" -> "tr"
+            var first = raw.Split(',')[0].Trim();
+            if (string.IsNullOrWhiteSpace(first))
+                return null;
+
+            var lang = first.Split('-')[0].Trim().ToLowerInvariant();
+            return string.IsNullOrWhiteSpace(lang) ? null : lang;
         }
     }
 }

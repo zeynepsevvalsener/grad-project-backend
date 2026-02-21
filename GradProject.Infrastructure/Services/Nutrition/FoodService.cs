@@ -57,7 +57,7 @@ namespace GradProject.Infrastructure.Services.Nutrition
                 SodiumMg = request.SodiumMg,
                 DefaultPortionG = request.DefaultPortionG,
 
-                Aliases = request.Aliases ?? []
+                
             };
 
             _db.Foods.Add(entity);
@@ -95,7 +95,7 @@ namespace GradProject.Infrastructure.Services.Nutrition
             entity.SodiumMg = request.SodiumMg;
             entity.DefaultPortionG = request.DefaultPortionG;
 
-            entity.Aliases = request.Aliases ?? [];
+            
 
             await _db.SaveChangesAsync(ct);
 
@@ -130,7 +130,7 @@ namespace GradProject.Infrastructure.Services.Nutrition
             SodiumMg = f.SodiumMg,
 
             DefaultPortionG = f.DefaultPortionG,
-            Aliases = f.Aliases ?? []
+           
         };
     }
 }

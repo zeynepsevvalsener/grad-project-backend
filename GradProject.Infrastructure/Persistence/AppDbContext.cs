@@ -20,6 +20,7 @@ namespace GradProject.Infrastructure.Persistence
         public DbSet<Challenge> Challenges => Set<Challenge>();
         public DbSet<Badge> Badges => Set<Badge>();
         public DbSet<UserChallenge> UserChallenges => Set<UserChallenge>();
+        public DbSet<FoodAlias> FoodAliases => Set<FoodAlias>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -168,9 +169,6 @@ namespace GradProject.Infrastructure.Persistence
                  .IsRequired()
                  .HasMaxLength(50);
 
-                e.Property(f => f.Aliases)
-                 .HasColumnType("text[]");
-
                 e.Property(f => f.Kcal).HasPrecision(8, 2);
                 e.Property(f => f.ProteinG).HasPrecision(8, 2);
                 e.Property(f => f.FatG).HasPrecision(8, 2);
@@ -198,6 +196,38 @@ namespace GradProject.Infrastructure.Persistence
                     t.HasCheckConstraint("CK_Foods_SodiumMg_NonNegative", "\"SodiumMg\" >= 0");
                     t.HasCheckConstraint("CK_Foods_DefaultPortionG_Positive", "\"DefaultPortionG\" > 0");
                 });
+            });
+
+            modelBuilder.Entity<FoodAlias>(e =>
+            {
+                e.HasKey(a => a.Id);
+
+                e.Property(a => a.Language)
+                 .IsRequired()
+                 .HasMaxLength(5);
+
+                e.Property(a => a.Alias)
+                 .IsRequired()
+                 .HasMaxLength(200);
+
+                e.Property(a => a.NormalizedAlias)
+                 .IsRequired()
+                 .HasMaxLength(200);
+
+                e.HasOne(a => a.Food)
+                 .WithMany()
+                 .HasForeignKey(a => a.FoodId)
+                 .IsRequired()
+                 .OnDelete(DeleteBehavior.Cascade);
+
+                // Ayný dilde ayný alias iki farklý canonical’a gitmesin
+                e.HasIndex(a => new { a.Language, a.NormalizedAlias })
+                 .IsUnique()
+                 .HasDatabaseName("IX_FoodAliases_Language_NormalizedAlias");
+
+                // Food detayýnda hýzlý çekim
+                e.HasIndex(a => new { a.FoodId, a.Language })
+                 .HasDatabaseName("IX_FoodAliases_FoodId_Language");
             });
 
             modelBuilder.Entity<ConsumedFood>(e =>

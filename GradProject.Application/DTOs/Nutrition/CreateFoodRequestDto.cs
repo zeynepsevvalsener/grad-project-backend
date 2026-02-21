@@ -17,6 +17,5 @@
 
         public decimal DefaultPortionG { get; set; }
 
-        public string[] Aliases { get; set; } = [];
     }
 }
