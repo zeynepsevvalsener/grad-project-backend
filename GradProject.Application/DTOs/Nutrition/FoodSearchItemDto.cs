@@ -18,6 +18,5 @@
         public decimal DefaultPortionG { get; set; }
 
         public string Source { get; set; } = null!;
-        public string[] Aliases { get; set; } = Array.Empty<string>();
     }
 }

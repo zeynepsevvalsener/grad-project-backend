@@ -88,6 +88,7 @@ builder.Services.AddScoped<ILanguageResolver, LanguageResolver>();
 builder.Services.AddScoped<ICurrentLanguage, CurrentLanguage>();
 builder.Services.AddTransient<RequestLanguageMiddleware>();
 builder.Services.AddScoped<ILocalizationService, LocalizationService>();
+builder.Services.AddScoped<IFoodCanonicalResolver, FoodCanonicalResolver>();
 
 
 
