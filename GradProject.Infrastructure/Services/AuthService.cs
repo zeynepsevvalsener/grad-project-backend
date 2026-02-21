@@ -11,12 +11,15 @@ namespace GradProject.Infrastructure.Services
         private readonly AppDbContext _db;
         private readonly IPasswordHasher _passwordHasher;
         private readonly IJwtTokenService _jwtTokenService;
+        private readonly ILocalizationService _localization;
 
-        public AuthService(AppDbContext db, IPasswordHasher passwordHasher, IJwtTokenService jwtTokenService)
+
+        public AuthService(AppDbContext db, IPasswordHasher passwordHasher, IJwtTokenService jwtTokenService, ILocalizationService localization)
         {
             _db = db;
             _passwordHasher = passwordHasher;
             _jwtTokenService = jwtTokenService;
+            _localization = localization;
         }
 
         public async Task<AuthResponseDto> RegisterAsync(RegisterRequestDto request)
@@ -34,6 +37,7 @@ namespace GradProject.Infrastructure.Services
                 Email = email,
                 PasswordHash = hash,
                 PasswordSalt = salt,
+                Language = "en",
                 // Role default: User
             };
 
@@ -48,7 +52,8 @@ namespace GradProject.Infrastructure.Services
                 ExpiresAtUtc = expiresAtUtc,
                 UserId = user.Id,
                 Email = user.Email,
-                Role = user.Role
+                Role = user.Role,
+                Language = string.IsNullOrWhiteSpace(user.Language) ? "en" : user.Language
             };
         }
 
@@ -58,11 +63,11 @@ namespace GradProject.Infrastructure.Services
 
             var user = await _db.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == email);
             if (user is null)
-                throw new UnauthorizedAccessException("Invalid credentials.");
+                throw new UnauthorizedAccessException(_localization.Get("auth.invalidCredentials"));
 
             var ok = _passwordHasher.Verify(request.Password, user.PasswordHash, user.PasswordSalt);
             if (!ok)
-                throw new UnauthorizedAccessException("Invalid credentials.");
+                throw new UnauthorizedAccessException(_localization.Get("auth.invalidCredentials"));
 
             var (token, expiresAtUtc) = _jwtTokenService.CreateToken(user);
 
@@ -72,7 +77,8 @@ namespace GradProject.Infrastructure.Services
                 ExpiresAtUtc = expiresAtUtc,
                 UserId = user.Id,
                 Email = user.Email,
-                Role = user.Role
+                Role = user.Role,
+                Language = string.IsNullOrWhiteSpace(user.Language) ? "en" : user.Language
             };
         }
     }
