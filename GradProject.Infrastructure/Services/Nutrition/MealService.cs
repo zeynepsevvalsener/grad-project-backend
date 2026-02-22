@@ -11,7 +11,6 @@ namespace GradProject.Infrastructure.Services.Nutrition
         private readonly AppDbContext _db;
         private readonly IDailyIntakeAggregationService _dailyAgg;
 
-        // Unit conversion dictionaries (reused from MealParsingService)
         private static readonly Dictionary<string, decimal> UnitToGramMultiplier = new(StringComparer.OrdinalIgnoreCase)
         {
             ["g"] = 1m,
@@ -81,7 +80,6 @@ namespace GradProject.Infrastructure.Services.Nutrition
 
         public async Task<MealResponseDto> CreateAsync(int userId, CreateMealRequestDto request, CancellationToken ct = default)
         {
-            // Validate foods exist if provided
             if (request.Foods != null && request.Foods.Any())
             {
                 var foodIds = request.Foods.Select(f => f.FoodId).Distinct().ToList();
@@ -92,9 +90,7 @@ namespace GradProject.Infrastructure.Services.Nutrition
 
                 var missingFoods = foodIds.Except(existingFoods).ToList();
                 if (missingFoods.Any())
-                {
                     throw new KeyNotFoundException($"Food(s) not found: {string.Join(", ", missingFoods)}");
-                }
             }
 
             var meal = new Meal
@@ -110,7 +106,6 @@ namespace GradProject.Infrastructure.Services.Nutrition
             _db.Meals.Add(meal);
             await _db.SaveChangesAsync(ct);
 
-            // Add MealFood records if provided
             if (request.Foods != null && request.Foods.Any())
             {
                 var foods = await _db.Foods
@@ -118,6 +113,7 @@ namespace GradProject.Infrastructure.Services.Nutrition
                     .ToListAsync(ct);
 
                 var mealFoods = new List<MealFood>();
+
                 foreach (var foodDto in request.Foods)
                 {
                     var food = foods.First(f => f.Id == foodDto.FoodId);
@@ -131,13 +127,14 @@ namespace GradProject.Infrastructure.Services.Nutrition
                         Unit = foodDto.Unit
                     });
 
-                    // Create ConsumedFood record for nutrition tracking (Option B from requirements)
+                    //  NEW: MealId set edildi
                     var consumedFood = new ConsumedFood
                     {
                         UserId = userId,
                         FoodId = foodDto.FoodId,
                         PortionG = portionG,
-                        ConsumedAt = request.LoggedAt
+                        ConsumedAt = request.LoggedAt,
+                        MealId = meal.Id
                     };
                     _db.ConsumedFoods.Add(consumedFood);
                 }
@@ -146,11 +143,9 @@ namespace GradProject.Infrastructure.Services.Nutrition
                 await _db.SaveChangesAsync(ct);
             }
 
-            // Trigger daily intake aggregation for the affected date
             var createdDate = DateOnly.FromDateTime(request.LoggedAt);
             await _dailyAgg.AggregateDailyIntakeAsync(userId, createdDate, ct);
 
-            // Reload with includes for response
             var createdMeal = await _db.Meals
                 .Include(m => m.MealFoods)
                     .ThenInclude(mf => mf.Food)
@@ -170,7 +165,6 @@ namespace GradProject.Infrastructure.Services.Nutrition
 
             var oldDate = DateOnly.FromDateTime(meal.LoggedAt);
 
-            // Validate foods exist if provided
             if (request.Foods != null && request.Foods.Any())
             {
                 var foodIds = request.Foods.Select(f => f.FoodId).Distinct().ToList();
@@ -181,10 +175,14 @@ namespace GradProject.Infrastructure.Services.Nutrition
 
                 var missingFoods = foodIds.Except(existingFoods).ToList();
                 if (missingFoods.Any())
-                {
                     throw new KeyNotFoundException($"Food(s) not found: {string.Join(", ", missingFoods)}");
-                }
             }
+
+            //  NEW: Bu meal’a baðlý eski consumedfood kayýtlarýný sil (yetim kalmasýn)
+            var oldLinkedConsumedFoods = await _db.ConsumedFoods
+                .Where(cf => cf.UserId == userId && cf.MealId == meal.Id)
+                .ToListAsync(ct);
+            _db.ConsumedFoods.RemoveRange(oldLinkedConsumedFoods);
 
             // Update meal properties
             meal.MealType = request.MealType;
@@ -193,10 +191,10 @@ namespace GradProject.Infrastructure.Services.Nutrition
             meal.Notes = request.Notes;
             meal.UpdatedAt = DateTime.UtcNow;
 
-            // Delete old MealFoods (cascade will handle cleanup)
+            // Remove old MealFoods
             _db.MealFoods.RemoveRange(meal.MealFoods);
 
-            // Add new MealFoods if provided
+            // Add new MealFoods + new ConsumedFoods
             if (request.Foods != null && request.Foods.Any())
             {
                 var foods = await _db.Foods
@@ -204,6 +202,7 @@ namespace GradProject.Infrastructure.Services.Nutrition
                     .ToListAsync(ct);
 
                 var mealFoods = new List<MealFood>();
+
                 foreach (var foodDto in request.Foods)
                 {
                     var food = foods.First(f => f.Id == foodDto.FoodId);
@@ -217,13 +216,14 @@ namespace GradProject.Infrastructure.Services.Nutrition
                         Unit = foodDto.Unit
                     });
 
-                    // Create ConsumedFood record for nutrition tracking
+                    //  NEW: MealId set edildi
                     var consumedFood = new ConsumedFood
                     {
                         UserId = userId,
                         FoodId = foodDto.FoodId,
                         PortionG = portionG,
-                        ConsumedAt = request.LoggedAt
+                        ConsumedAt = request.LoggedAt,
+                        MealId = meal.Id
                     };
                     _db.ConsumedFoods.Add(consumedFood);
                 }
@@ -233,14 +233,12 @@ namespace GradProject.Infrastructure.Services.Nutrition
 
             await _db.SaveChangesAsync(ct);
 
-            // Trigger daily intake aggregation for the affected date(s)
             var newDate = DateOnly.FromDateTime(meal.LoggedAt);
             await _dailyAgg.AggregateDailyIntakeAsync(userId, newDate, ct);
 
             if (oldDate != newDate)
                 await _dailyAgg.AggregateDailyIntakeAsync(userId, oldDate, ct);
 
-            // Reload with includes for response
             var updatedMeal = await _db.Meals
                 .Include(m => m.MealFoods)
                     .ThenInclude(mf => mf.Food)
@@ -258,13 +256,19 @@ namespace GradProject.Infrastructure.Services.Nutrition
             if (meal == null)
                 return false;
 
-            // Delete related ConsumedFood records (optional - for cleanup)
-            // Note: This is a simple approach. In production, you might want to track
-            // which ConsumedFoods were created by meals vs manually added.
-            // For now, we'll just delete the meal and let MealFoods cascade delete.
+            var date = DateOnly.FromDateTime(meal.LoggedAt);
+
+            //  NEW: önce meal’a baðlý consumedfood kayýtlarýný sil (Restrict FK yüzünden þart)
+            var linkedConsumedFoods = await _db.ConsumedFoods
+                .Where(cf => cf.UserId == userId && cf.MealId == meal.Id)
+                .ToListAsync(ct);
+            _db.ConsumedFoods.RemoveRange(linkedConsumedFoods);
 
             _db.Meals.Remove(meal);
             await _db.SaveChangesAsync(ct);
+
+            //  NEW: delete sonrasý daily summary güncellensin
+            await _dailyAgg.AggregateDailyIntakeAsync(userId, date, ct);
 
             return true;
         }
