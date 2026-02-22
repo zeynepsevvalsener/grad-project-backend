@@ -20,6 +20,8 @@ Key outcomes:
 * Enhanced /api/v1/foods/search endpoint with advanced filtering, sorting, and pagination support.
 * Added sorting options (asc/desc) - (alphabetical)
 * Implemented full pagination metadata and Refactored query logic for improved efficiency using SQL-based filtering
+* Search results now return a localized DisplayName based on the user's language preference.
+* If a language-specific alias exists → it is returned as DisplayName, If no alias exists → falls back to the canonical food name.
 
 ---
 
