@@ -86,11 +86,14 @@ namespace GradProject.Api.Controllers
         [HttpGet("search")]
         public async Task<ActionResult<PagedResultDto<FoodSearchItemDto>>> Search(
              [FromQuery] string? q,
+             [FromQuery] string? category,
+             [FromQuery] string? sortBy,     // calories | protein | alphabetical
+             [FromQuery] string? sortDir,    // asc | desc
              [FromQuery] int page = 1,
              [FromQuery] int pageSize = 20,
              CancellationToken ct = default)
         {
-            var result = await _foodSearchService.SearchAsync(q, page, pageSize, ct);
+            var result = await _foodSearchService.SearchAsync(q, category, sortBy, sortDir, page, pageSize, ct);
             return Ok(result);
         }
     }

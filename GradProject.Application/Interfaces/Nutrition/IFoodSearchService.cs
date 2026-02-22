@@ -7,6 +7,9 @@ namespace GradProject.Application.Interfaces.Nutrition
     {
         Task<PagedResultDto<FoodSearchItemDto>> SearchAsync(
             string? query,
+            string? category,
+            string? sortBy,
+            string? sortDir,
             int page,
             int pageSize,
             CancellationToken ct = default);
