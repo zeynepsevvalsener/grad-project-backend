@@ -220,12 +220,10 @@ namespace GradProject.Infrastructure.Persistence
                  .IsRequired()
                  .OnDelete(DeleteBehavior.Cascade);
 
-                // Ayný dilde ayný alias iki farklý canonical’a gitmesin
                 e.HasIndex(a => new { a.Language, a.NormalizedAlias })
                  .IsUnique()
                  .HasDatabaseName("IX_FoodAliases_Language_NormalizedAlias");
 
-                // Food detayýnda hýzlý çekim
                 e.HasIndex(a => new { a.FoodId, a.Language })
                  .HasDatabaseName("IX_FoodAliases_FoodId_Language");
             });
@@ -241,6 +239,10 @@ namespace GradProject.Infrastructure.Persistence
                  .IsRequired()
                  .HasPrecision(10, 2);
 
+                //  NEW: MealId nullable
+                e.Property(cf => cf.MealId)
+                 .IsRequired(false);
+
                 e.HasIndex(cf => cf.UserId)
                  .HasDatabaseName("IX_ConsumedFoods_UserId");
 
@@ -249,6 +251,10 @@ namespace GradProject.Infrastructure.Persistence
 
                 e.HasIndex(cf => cf.FoodId)
                  .HasDatabaseName("IX_ConsumedFoods_FoodId");
+
+                //  NEW: index for MealId
+                e.HasIndex(cf => cf.MealId)
+                 .HasDatabaseName("IX_ConsumedFoods_MealId");
 
                 e.HasOne(cf => cf.User)
                  .WithMany()
@@ -260,6 +266,13 @@ namespace GradProject.Infrastructure.Persistence
                  .WithMany()
                  .HasForeignKey(cf => cf.FoodId)
                  .IsRequired()
+                 .OnDelete(DeleteBehavior.Restrict);
+
+                //  NEW: optional FK ConsumedFood -> Meal (NO SURPRISE CASCADE)
+                e.HasOne(cf => cf.Meal)
+                 .WithMany() // Meal tarafýnda collection eklemedik (clean + minimal)
+                 .HasForeignKey(cf => cf.MealId)
+                 .IsRequired(false)
                  .OnDelete(DeleteBehavior.Restrict);
 
                 e.ToTable(t =>
