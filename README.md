@@ -15,6 +15,12 @@ Key outcomes:
 * Seed dataset updated to include more common foods across categories (grain, dairy, fat, legume, nut).
 * Values are stored in the **Foods** table (global), and TR aliases are stored in **FoodAliases**.
 
+### ✅ New Search Function
+
+* Enhanced /api/v1/foods/search endpoint with advanced filtering, sorting, and pagination support.
+* Added sorting options (asc/desc) - (alphabetical)
+* Implemented full pagination metadata and Refactored query logic for improved efficiency using SQL-based filtering
+
 ---
 
 ## 🚀 Running the Application (Local Development)
