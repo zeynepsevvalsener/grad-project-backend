@@ -4,26 +4,32 @@ using GradProject.Domain.Entities;
 using GradProject.Domain.Enums;
 using GradProject.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace GradProject.Infrastructure.Services.Gamification
 {
     public class ChallengeService : IChallengeService
     {
         private readonly AppDbContext _db;
+        private readonly IMemoryCache _cache;
 
-        public ChallengeService(AppDbContext db)
+        public ChallengeService(AppDbContext db, IMemoryCache cache)
         {
             _db = db;
+            _cache = cache;
         }
 
         public async Task<IReadOnlyList<ChallengeResponseDto>> GetAllAsync(CancellationToken ct = default)
         {
-            var challenges = await _db.Challenges
-                .AsNoTracking()
-                .OrderByDescending(c => c.Id)
-                .ToListAsync(ct);
-
-            return challenges.Select(c => MapToResponseDto(c)).ToList();
+            return (await _cache.GetOrCreateAsync("challenges:all", async e =>
+            {
+                e.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);
+                var challenges = await _db.Challenges
+                    .AsNoTracking()
+                    .OrderByDescending(c => c.Id)
+                    .ToListAsync(ct);
+                return challenges.Select(c => MapToResponseDto(c)).ToList();
+            }))!;
         }
 
         public async Task<ChallengeResponseDto?> GetByIdAsync(int id, CancellationToken ct = default)
@@ -37,13 +43,16 @@ namespace GradProject.Infrastructure.Services.Gamification
 
         public async Task<IReadOnlyList<ChallengeResponseDto>> GetActiveAsync(CancellationToken ct = default)
         {
-            var challenges = await _db.Challenges
+            return (await _cache.GetOrCreateAsync("challenges:active", async e =>
+            {
+                e.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);
+                var challenges = await _db.Challenges
                 .AsNoTracking()
                 .Where(c => c.IsActive)
-                .OrderByDescending(c => c.Id)
-                .ToListAsync(ct);
-
-            return challenges.Select(c => MapToResponseDto(c)).ToList();
+                    .OrderByDescending(c => c.Id)
+                    .ToListAsync(ct);
+                return challenges.Select(c => MapToResponseDto(c)).ToList();
+            }))!;
         }
 
         public async Task<ChallengeResponseDto> CreateAsync(CreateChallengeRequestDto request, CancellationToken ct = default)
@@ -63,6 +72,8 @@ namespace GradProject.Infrastructure.Services.Gamification
 
             _db.Challenges.Add(challenge);
             await _db.SaveChangesAsync(ct);
+            _cache.Remove("challenges:all");
+            _cache.Remove("challenges:active");
 
             var createdChallenge = await _db.Challenges
                 .AsNoTracking()
@@ -90,6 +101,8 @@ namespace GradProject.Infrastructure.Services.Gamification
             challenge.IsActive = request.IsActive;
 
             await _db.SaveChangesAsync(ct);
+            _cache.Remove("challenges:all");
+            _cache.Remove("challenges:active");
 
             var updatedChallenge = await _db.Challenges
                 .AsNoTracking()
@@ -108,6 +121,8 @@ namespace GradProject.Infrastructure.Services.Gamification
 
             _db.Challenges.Remove(challenge);
             await _db.SaveChangesAsync(ct);
+            _cache.Remove("challenges:all");
+            _cache.Remove("challenges:active");
 
             return true;
         }

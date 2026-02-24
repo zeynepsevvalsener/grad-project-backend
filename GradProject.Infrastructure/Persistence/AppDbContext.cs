@@ -20,6 +20,7 @@ namespace GradProject.Infrastructure.Persistence
         public DbSet<Challenge> Challenges => Set<Challenge>();
         public DbSet<Badge> Badges => Set<Badge>();
         public DbSet<UserChallenge> UserChallenges => Set<UserChallenge>();
+        public DbSet<LeaderboardSnapshot> LeaderboardSnapshots => Set<LeaderboardSnapshot>();
         public DbSet<FoodAlias> FoodAliases => Set<FoodAlias>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -270,7 +271,7 @@ namespace GradProject.Infrastructure.Persistence
 
                 //  NEW: optional FK ConsumedFood -> Meal (NO SURPRISE CASCADE)
                 e.HasOne(cf => cf.Meal)
-                 .WithMany() // Meal tarafýnda collection eklemedik (clean + minimal)
+                 .WithMany() // Meal tarafnda collection eklemedik (clean + minimal)
                  .HasForeignKey(cf => cf.MealId)
                  .IsRequired(false)
                  .OnDelete(DeleteBehavior.Restrict);
@@ -511,6 +512,13 @@ namespace GradProject.Infrastructure.Persistence
                     t.HasCheckConstraint("CK_UserChallenges_ProgressDistanceMeters_NonNegative", "\"ProgressDistanceMeters\" >= 0");
                     t.HasCheckConstraint("CK_UserChallenges_ProgressCalories_NonNegative", "\"ProgressCalories\" >= 0");
                 });
+            });
+
+            modelBuilder.Entity<LeaderboardSnapshot>(e =>
+            {
+                e.HasKey(s => s.Id);
+                e.HasIndex(s => new { s.ChallengeId, s.SnapshotDate, s.UserId }).IsUnique();
+                e.HasIndex(s => new { s.ChallengeId, s.SnapshotDate });
             });
         }
     }

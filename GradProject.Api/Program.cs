@@ -17,6 +17,7 @@ using GradProject.Infrastructure.Services.Nutrition;
 using GradProject.Infrastructure.Services.Gamification;
 using GradProject.Infrastructure.Services.Running;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
@@ -24,19 +25,28 @@ using System.Text.Json.Serialization;
 using Microsoft.OpenApi.Models;
 using GradProject.Application.Interfaces.Nutrition.AI;
 using GradProject.Infrastructure.Services.Nutrition.AI;
-
-
-
+using GradProject.Application.Interfaces.Leaderboard;
+using GradProject.Infrastructure.Services.Leaderboard;
+using GradProject.Application.Services.Leaderboard;
+using GradProject.Api.Options;
+using GradProject.Api.HostedServices;
+using Serilog;
 
 DotNetEnv.Env.Load();
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Host.UseSerilog((ctx, cfg) => cfg
+    .ReadFrom.Configuration(ctx.Configuration)
+    .Enrich.FromLogContext()
+    .WriteTo.Console(new Serilog.Formatting.Json.JsonFormatter()));
 var aiUrl = builder.Configuration.GetValue<string>("AiServiceSettings:BaseUrl") ?? "http://127.0.0.1:8000";
 // Validate aiUrl to prevent Invalid URI errors
 if (string.IsNullOrWhiteSpace(aiUrl) || !Uri.TryCreate(aiUrl, UriKind.Absolute, out _))
 {
     aiUrl = "http://127.0.0.1:8000"; // Fallback to default
 }
+builder.Services.AddMemoryCache();
+
 // DbContext (PostgreSQL + PostGIS)
 builder.Services.AddDbContext<AppDbContext>(opt =>
     opt.UseNpgsql(builder.Configuration.GetConnectionString("Default"), o => o.UseNetTopologySuite()));
@@ -90,7 +100,14 @@ builder.Services.AddTransient<RequestLanguageMiddleware>();
 builder.Services.AddScoped<ILocalizationService, LocalizationService>();
 builder.Services.AddScoped<IFoodCanonicalResolver, FoodCanonicalResolver>();
 
-
+// Leaderboard services
+builder.Services.AddScoped<ILeaderboardService, LeaderboardService>();
+builder.Services.AddScoped<ILeaderboardEventPublisher, NoOpLeaderboardEventPublisher>();
+builder.Services.AddScoped<RankingEngine>();
+builder.Services.AddScoped<LeaderboardAggregator>();
+builder.Services.Configure<LeaderboardRefreshOptions>(
+    builder.Configuration.GetSection(LeaderboardRefreshOptions.SectionName));
+builder.Services.AddHostedService<LeaderboardDailyRefreshJob>();
 
 //  Exception middleware DI
 builder.Services.AddTransient<ExceptionHandlingMiddleware>();
@@ -174,21 +191,17 @@ builder.Services
 
 builder.Services.AddAuthorization();
 
-// Rate Limiting (prepared for future use)
-// Uncomment when needed:
-// builder.Services.AddRateLimiter(options =>
-// {
-//     options.AddFixedWindowLimiter("RoutePolicy", opt =>
-//     {
-//         opt.Window = TimeSpan.FromMinutes(1);
-//         opt.PermitLimit = 60; // 60 requests per minute
-//         opt.QueueProcessingOrder = System.Threading.RateLimiting.QueueProcessingOrder.OldestFirst;
-//         opt.QueueLimit = 10;
-//     });
-// });
-// 
-// Then add to endpoint:
-// [EnableRateLimiting("RoutePolicy")]
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<AppDbContext>("db");
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddFixedWindowLimiter("LeaderboardPolicy", opt =>
+    {
+        opt.Window = TimeSpan.FromMinutes(1);
+        opt.PermitLimit = 60;
+    });
+});
 
 // CORS
 builder.Services.AddCors(options =>
@@ -222,6 +235,8 @@ if (!app.Environment.IsDevelopment())
 }
 
 
+app.UseMiddleware<CorrelationIdMiddleware>();
+app.UseSerilogRequestLogging();
 //  Exception handling
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
@@ -234,6 +249,9 @@ app.UseCors("DevCorsPolicy");
 app.UseAuthentication();
 app.UseMiddleware<RequestLanguageMiddleware>();
 app.UseAuthorization();
+app.UseRateLimiter();
+
+app.MapHealthChecks("/health");
 
 app.MapControllers();
 

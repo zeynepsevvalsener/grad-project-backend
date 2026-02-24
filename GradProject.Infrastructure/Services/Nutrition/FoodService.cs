@@ -1,28 +1,34 @@
-﻿using GradProject.Application.DTOs.Nutrition;
+using GradProject.Application.DTOs.Nutrition;
 using GradProject.Application.Interfaces.Nutrition;
 using GradProject.Domain.Entities;
 using GradProject.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace GradProject.Infrastructure.Services.Nutrition
 {
     public class FoodService : IFoodService
     {
         private readonly AppDbContext _db;
+        private readonly IMemoryCache _cache;
 
-        public FoodService(AppDbContext db)
+        public FoodService(AppDbContext db, IMemoryCache cache)
         {
             _db = db;
+            _cache = cache;
         }
 
         public async Task<IReadOnlyList<FoodResponseDto>> GetAllAsync(CancellationToken ct = default)
         {
-            var foods = await _db.Foods
+            return (await _cache.GetOrCreateAsync("foods:all", async e =>
+            {
+                e.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);
+                var foods = await _db.Foods
                 .AsNoTracking()
-                .OrderBy(f => f.Name)
-                .ToListAsync(ct);
-
-            return foods.Select(MapToDto).ToList();
+                    .OrderBy(f => f.Name)
+                    .ToListAsync(ct);
+                return foods.Select(MapToDto).ToList();
+            }))!;
         }
 
         public async Task<FoodResponseDto?> GetByIdAsync(int id, CancellationToken ct = default)
@@ -62,6 +68,7 @@ namespace GradProject.Infrastructure.Services.Nutrition
 
             _db.Foods.Add(entity);
             await _db.SaveChangesAsync(ct);
+            _cache.Remove("foods:all");
 
             return MapToDto(entity);
         }
@@ -98,6 +105,7 @@ namespace GradProject.Infrastructure.Services.Nutrition
             
 
             await _db.SaveChangesAsync(ct);
+            _cache.Remove("foods:all");
 
             return MapToDto(entity);
         }
@@ -110,6 +118,7 @@ namespace GradProject.Infrastructure.Services.Nutrition
 
             _db.Foods.Remove(entity);
             await _db.SaveChangesAsync(ct);
+            _cache.Remove("foods:all");
 
             return true;
         }
