@@ -303,10 +303,12 @@ namespace GradProject.Infrastructure.Services.Nutrition
                 Domain.Enums.MealType.SNACK => "Snack",
                 _ => meal.MealType.ToString()
             };
-
             var foods = meal.MealFoods.Select(mf =>
             {
-                var portionG = ConvertToGrams(mf.Quantity, mf.Unit, mf.Food.DefaultPortionG);
+                //var portionG = ConvertToGrams(mf.Quantity, mf.Unit, mf.Food.DefaultPortionG);
+
+                var portionG = mf.Food.DefaultPortionG; //eklendi
+
                 return new MealFoodResponseDto
                 {
                     Id = mf.Id,

@@ -1,13 +1,14 @@
-﻿using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
-using GradProject.Application.DTOs.Nutrition;
+﻿using GradProject.Application.DTOs.Nutrition;
 using GradProject.Application.DTOs.Nutrition.AI;
+using GradProject.Application.Interfaces;
 using GradProject.Application.Interfaces.Nutrition;
 using GradProject.Application.Interfaces.Nutrition.AI;
 using GradProject.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 
 namespace GradProject.Api.Controllers
 {
@@ -22,13 +23,14 @@ namespace GradProject.Api.Controllers
         private readonly IMealParsingService _mealParsingService;
         private readonly IMealService _mealService;
         private readonly AppDbContext _db;
-
+        private readonly ILocalizationService _localizationService;
         public NutritionController(
             INutritionCalculationService nutritionCalculationService,
             INutritionTargetsService nutritionTargetsService,
             IDailyIntakeAggregationService dailyIntakeAggregationService,
             IMealParsingService mealParsingService,
             IMealService mealService,
+            ILocalizationService localizationService,
             AppDbContext db)
         {
             _nutritionCalculationService = nutritionCalculationService;
@@ -36,6 +38,7 @@ namespace GradProject.Api.Controllers
             _dailyIntakeAggregationService = dailyIntakeAggregationService;
             _mealParsingService = mealParsingService;
             _mealService = mealService;
+            _localizationService = localizationService;
             _db = db;
         }
 
@@ -102,7 +105,7 @@ namespace GradProject.Api.Controllers
             // 2) yoksa DB(User.Language)
             // 3) yoksa Accept-Language header
             // 4) yoksa "en"
-            if (string.IsNullOrWhiteSpace(request.Language))
+            if (string.IsNullOrWhiteSpace(request.Language) || request.Language == "string")
             {
                 var userLang = await _db.Users
                     .AsNoTracking()
@@ -123,7 +126,7 @@ namespace GradProject.Api.Controllers
 
             if (!validItems.Any())
             {
-                return BadRequest(new { message = "AI metin içinde veritabanında kayıtlı bir yemek bulamadı." });
+                return BadRequest(new { message = _localizationService.Get("ai.food.notfound") });
             }
 
             var mealFoods = validItems.Select(item => new MealFoodDto
@@ -147,6 +150,19 @@ namespace GradProject.Api.Controllers
 
             var savedMeal = await _mealService.CreateAsync(userId, createMealRequest, ct);
 
+            foreach (var food in savedMeal.Foods)
+            {
+                var alias = await _db.FoodAliases
+                    .AsNoTracking()
+                    .Where(a => a.FoodId == food.FoodId && a.Language == request.Language)
+                    .Select(a => a.Alias)
+                    .FirstOrDefaultAsync(ct);
+
+                if (!string.IsNullOrWhiteSpace(alias))
+                {
+                    food.FoodName = alias; // Girdiği dilde döndürüyor "Apple" -> "Elma"
+                }
+            }
             return Ok(savedMeal);
         }
 

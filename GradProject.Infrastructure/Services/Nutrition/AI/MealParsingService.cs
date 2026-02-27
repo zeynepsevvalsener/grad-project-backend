@@ -23,7 +23,9 @@ namespace GradProject.Infrastructure.Services.Nutrition.AI
 
         public async Task<MealParseResultDto> ParseAsync(int userId, MealParseRequestDto request, CancellationToken ct = default)
         {
-            var payload = new { text = request.Text, consumedAt = request.ConsumedAt };
+            var lang = request.Language ?? "en";
+
+            var payload = new { text = request.Text, consumedAt = request.ConsumedAt, language = lang };
 
             PythonMealResponse? aiResponse;
 
@@ -72,13 +74,32 @@ namespace GradProject.Infrastructure.Services.Nutrition.AI
             };
 
             //   Fallback: AI match yoksa/çok düþükse canonical resolver dene
-            var lang = request.Language ?? "en"; // MealParseRequestDto'da yoksa eklemeye gerek yok; sabit "en" de geçilir.
+            // var lang = request.Language ?? "en"; // MealParseRequestDto'da yoksa eklemeye gerek yok; sabit "en" de geçilir. Not: yukarý çektim (utku)
             foreach (var item in result.Items)
             {
                 var conf = item.Confidence;
 
-                if (item.MatchedFoodId.HasValue && conf >= 0.80m)
-                    continue;
+                if (item.MatchedFoodId.HasValue)
+                {
+                    var localizedName = await _db.FoodAliases
+                        .AsNoTracking()
+                        .Where(a => a.FoodId == item.MatchedFoodId.Value && a.Language == lang)
+                        .Select(a => a.Alias)
+                        .FirstOrDefaultAsync(ct);
+
+                    if (!string.IsNullOrWhiteSpace(localizedName))
+                    {
+                        item.MatchedFoodName = localizedName;
+                    }
+                    else
+                    {
+                        item.MatchedFoodName = await _db.Foods
+                            .AsNoTracking()
+                            .Where(f => f.Id == item.MatchedFoodId.Value)
+                            .Select(f => f.Name)
+                            .FirstOrDefaultAsync(ct);
+                    }
+                }
 
                 var textToResolve =
                     !string.IsNullOrWhiteSpace(item.NormalizedName) ? item.NormalizedName! :
