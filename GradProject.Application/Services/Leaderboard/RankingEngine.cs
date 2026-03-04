@@ -15,33 +15,16 @@ public class RankingEngine
         List<LeaderboardAggregateData> aggregatedData,
         ChallengeMetric? metric = null)
     {
-        var ordered = metric switch
-        {
-            ChallengeMetric.Distance => aggregatedData
-                .OrderByDescending(x => x.TotalDistance)
-                .ThenByDescending(x => x.TerritoryScore ?? 0)
-                .ThenBy(x => x.AveragePace)
-                .ThenBy(x => x.CompletionSpeed ?? long.MaxValue)
-                .ThenBy(x => x.UserId),
-            ChallengeMetric.Pace => aggregatedData
-                .OrderBy(x => x.AveragePace)
-                .ThenByDescending(x => x.TotalDistance)
-                .ThenByDescending(x => x.TerritoryScore ?? 0)
-                .ThenBy(x => x.CompletionSpeed ?? long.MaxValue)
-                .ThenBy(x => x.UserId),
-            ChallengeMetric.Duration => aggregatedData
-                .OrderBy(x => x.CompletionSpeed ?? long.MaxValue)
-                .ThenByDescending(x => x.TotalDistance)
-                .ThenByDescending(x => x.TerritoryScore ?? 0)
-                .ThenBy(x => x.AveragePace)
-                .ThenBy(x => x.UserId),
-            _ => aggregatedData
-                .OrderByDescending(x => x.TerritoryScore ?? 0)
-                .ThenByDescending(x => x.TotalDistance)
-                .ThenBy(x => x.AveragePace)
-                .ThenBy(x => x.CompletionSpeed ?? long.MaxValue)
-                .ThenBy(x => x.UserId)
-        };
+        // Always prioritize TerritoryScore as the primary sorting rule
+        var ordered = aggregatedData
+            .OrderByDescending(x => x.TerritoryScore ?? 0)
+            .ThenByDescending(x => metric == ChallengeMetric.Distance ? x.TotalDistance : 0)
+            .ThenBy(x => metric == ChallengeMetric.Pace ? x.AveragePace : double.MaxValue)
+            .ThenBy(x => metric == ChallengeMetric.Duration ? (x.CompletionSpeed ?? long.MaxValue) : long.MaxValue)
+            .ThenByDescending(x => x.TotalDistance)
+            .ThenBy(x => x.AveragePace)
+            .ThenBy(x => x.CompletionSpeed ?? long.MaxValue)
+            .ThenBy(x => x.UserId);
 
         var sorted = ordered.ToList();
         // Map aggregated data to response DTOs with formatted values
