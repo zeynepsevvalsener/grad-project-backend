@@ -23,6 +23,9 @@ namespace GradProject.Infrastructure.Services
         private readonly IConvexHullService _convexHullService;
         private readonly IChallengeProgressService _challengeProgressService;
 
+        // Add TerritoryAchievementService
+        private readonly Gamification.TerritoryAchievementService _territoryAchievementService;
+
         public RunActivityService(
             AppDbContext db,
             StravaApiService stravaApiService,
@@ -31,7 +34,8 @@ namespace GradProject.Infrastructure.Services
             GeometryConverter geometryConverter,
             IBoundingBoxService boundingBoxService,
             IConvexHullService convexHullService,
-            IChallengeProgressService challengeProgressService)
+            IChallengeProgressService challengeProgressService,
+            Gamification.TerritoryAchievementService territoryAchievementService)
         {
             _db = db;
             _stravaApiService = stravaApiService;
@@ -41,6 +45,7 @@ namespace GradProject.Infrastructure.Services
             _boundingBoxService = boundingBoxService;
             _convexHullService = convexHullService;
             _challengeProgressService = challengeProgressService;
+            _territoryAchievementService = territoryAchievementService;
         }
 
         public async Task<FetchLatestRunResult> FetchLatestStravaRunAsync(int userId, CancellationToken ct = default)
@@ -131,6 +136,11 @@ namespace GradProject.Infrastructure.Services
                 try
                 {
                     await _challengeProgressService.UpdateAfterRunSaved(runningActivity.Id, ct);
+                    // Territory-based achievements (non-blocking, best effort)
+                    // TODO: Determine territoryId from run (requires territory logic)
+                    // Example: int? territoryId = GetTerritoryIdForRun(runningActivity);
+                    // if (territoryId.HasValue)
+                    //     await _territoryAchievementService.AwardTerritoryAchievementsAsync(userId, territoryId.Value, runningActivity.Id, ct);
                 }
                 catch (Exception ex)
                 {
