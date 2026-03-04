@@ -1,8 +1,7 @@
 namespace GradProject.Application.Services.TerritoryScoring;
 
 /// <summary>
-/// Default diminishing-returns repeat multiplier: 1 / (1 + previousContributionCount * repeatDecayFactor).
-/// Result is always in (0, 1]. See docs/HLN-8-Territory-Scoring-Model.md section 7.
+/// Default diminishing-returns: 1 / (1 + previousContributionCount * repeatDecayFactor).
 /// </summary>
 public sealed class DefaultRepeatCalculator : IRepeatEffectCalculator
 {

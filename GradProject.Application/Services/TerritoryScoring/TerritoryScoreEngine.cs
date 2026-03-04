@@ -3,7 +3,6 @@ namespace GradProject.Application.Services.TerritoryScoring;
 /// <summary>
 /// Pure, deterministic territory score computation engine. No DB, no I/O, no time/random.
 /// Computes run contributions per territory and user-level aggregates for leaderboard/claim/achievement.
-/// See docs/HLN-8-Territory-Scoring-Model.md for the full mathematical model.
 /// </summary>
 public sealed class TerritoryScoreEngine
 {
@@ -24,6 +23,11 @@ public sealed class TerritoryScoreEngine
     /// <summary>
     /// Computes per-territory contributions for one run. Same input always yields same output.
     /// </summary>
+    /// <param name="run">Run with covered cells (or per-territory counts from HLN-7).</param>
+    /// <param name="territories">Territories to evaluate.</param>
+    /// <param name="userHistoryMap">userId -> (territoryId -> history). Can be empty.</param>
+    /// <param name="config">Formula weights and repeat decay.</param>
+    /// <returns>One contribution per territory where the run has coverage; empty when no coverage.</returns>
     public IReadOnlyList<TerritoryContribution> ComputeRunContributions(
         RunInput run,
         IReadOnlyList<TerritoryInput> territories,
@@ -51,7 +55,11 @@ public sealed class TerritoryScoreEngine
 
             double baseScore = _formula.ComputeBaseScore(run, coverageRatio, territory, config);
 
-            int previousCount = GetPreviousContributionCount(userHistoryMap, run.UserId, territory.Id);
+            var history = userHistoryMap.TryGetValue(run.UserId, out var byTerritory) && byTerritory != null
+                && byTerritory.TryGetValue(territory.Id, out var h)
+                ? h
+                : null;
+            int previousCount = history?.PreviousContributionCount ?? 0;
             double repeatMultiplier = _repeatCalculator.GetMultiplier(previousCount, config.RepeatDecayFactor);
 
             double finalScore = baseScore * repeatMultiplier;
@@ -80,8 +88,7 @@ public sealed class TerritoryScoreEngine
     }
 
     /// <summary>
-    /// Aggregates contributions into one user-level aggregate
-    /// (TotalTerritoryScore, TotalDistance, AveragePace, TerritoryCount, StrongestTerritoryScore).
+    /// Aggregates contributions into one user-level aggregate (totalTerritoryScore, totalDistance, averagePace, etc.).
     /// </summary>
     public UserTerritoryAggregate AggregateUserTerritoryScore(IReadOnlyList<TerritoryContribution> contributions)
     {
@@ -121,26 +128,13 @@ public sealed class TerritoryScoreEngine
         };
     }
 
-    private static int GetPreviousContributionCount(
-        IReadOnlyDictionary<int, IReadOnlyDictionary<int, UserTerritoryHistoryInput>> userHistoryMap,
-        int userId,
-        int territoryId)
-    {
-        if (!userHistoryMap.TryGetValue(userId, out var byTerritory) || byTerritory == null)
-            return 0;
-        if (!byTerritory.TryGetValue(territoryId, out var history) || history == null)
-            return 0;
-        return history.PreviousContributionCount;
-    }
-
     private static int GetUniqueCoveredCellsInTerritory(RunInput run, TerritoryInput territory)
     {
         if (run.CoveredCellCountByTerritoryId != null &&
             run.CoveredCellCountByTerritoryId.TryGetValue(territory.Id, out int count))
             return count;
 
-        if (run.CoveredCellIds == null || run.CoveredCellIds.Count == 0
-            || territory.CellIds == null || territory.CellIds.Count == 0)
+        if (run.CoveredCellIds == null || run.CoveredCellIds.Count == 0 || territory.CellIds == null || territory.CellIds.Count == 0)
             return 0;
 
         int unique = 0;
