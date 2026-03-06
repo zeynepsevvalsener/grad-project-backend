@@ -22,6 +22,10 @@ namespace GradProject.Infrastructure.Persistence
         public DbSet<UserChallenge> UserChallenges => Set<UserChallenge>();
         public DbSet<LeaderboardSnapshot> LeaderboardSnapshots => Set<LeaderboardSnapshot>();
         public DbSet<FoodAlias> FoodAliases => Set<FoodAlias>();
+        public DbSet<Territory> Territories => Set<Territory>();
+        public DbSet<UserTerritory> UserTerritories => Set<UserTerritory>();
+        public DbSet<TerritoryUnlockCondition> TerritoryUnlockConditions => Set<TerritoryUnlockCondition>();
+        public DbSet<TerritoryOwnershipHistory> TerritoryOwnershipHistories => Set<TerritoryOwnershipHistory>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -519,6 +523,93 @@ namespace GradProject.Infrastructure.Persistence
                 e.HasKey(s => s.Id);
                 e.HasIndex(s => new { s.ChallengeId, s.SnapshotDate, s.UserId }).IsUnique();
                 e.HasIndex(s => new { s.ChallengeId, s.SnapshotDate });
+            });
+
+            // TERRITORY (HLN-8 claim/defend ownership)
+            modelBuilder.Entity<Territory>(e =>
+            {
+                e.HasKey(t => t.Id);
+                e.Property(t => t.Name).IsRequired().HasMaxLength(200);
+                e.Property(t => t.Description).HasMaxLength(1000);
+                e.Property(t => t.RegionCode).HasMaxLength(50);
+                e.Property(t => t.IconUrl).HasMaxLength(500);
+                e.Property(t => t.GeometryCells).HasColumnType("jsonb");
+                e.Property(t => t.CurrentOwnerScoreSnapshot).HasPrecision(12, 4);
+                e.Property(t => t.Version).HasDefaultValue(0).IsConcurrencyToken();
+                e.HasOne(t => t.CurrentOwnerUser)
+                 .WithMany()
+                 .HasForeignKey(t => t.CurrentOwnerUserId)
+                 .IsRequired(false)
+                 .OnDelete(DeleteBehavior.SetNull);
+                e.HasIndex(t => t.CurrentOwnerUserId).HasDatabaseName("IX_Territories_CurrentOwnerUserId");
+                e.ToTable("Territories");
+            });
+
+            // USER TERRITORY (unlock/progress)
+            modelBuilder.Entity<UserTerritory>(e =>
+            {
+                e.HasKey(ut => ut.Id);
+                e.Property(ut => ut.Status).HasConversion<int>();
+                e.HasOne(ut => ut.User)
+                 .WithMany()
+                 .HasForeignKey(ut => ut.UserId)
+                 .IsRequired()
+                 .OnDelete(DeleteBehavior.Cascade);
+                e.HasOne(ut => ut.Territory)
+                 .WithMany(t => t.UserTerritories)
+                 .HasForeignKey(ut => ut.TerritoryId)
+                 .IsRequired()
+                 .OnDelete(DeleteBehavior.Cascade);
+                e.HasIndex(ut => new { ut.UserId, ut.TerritoryId }).IsUnique().HasDatabaseName("IX_UserTerritories_UserId_TerritoryId");
+                e.ToTable("UserTerritories");
+            });
+
+            // TERRITORY UNLOCK CONDITION
+            modelBuilder.Entity<TerritoryUnlockCondition>(e =>
+            {
+                e.HasKey(uc => uc.Id);
+                e.Property(uc => uc.UnlockType).HasConversion<int>();
+                e.HasOne(uc => uc.Territory)
+                 .WithMany(t => t.UnlockConditions)
+                 .HasForeignKey(uc => uc.TerritoryId)
+                 .IsRequired()
+                 .OnDelete(DeleteBehavior.Cascade);
+                e.HasIndex(uc => uc.TerritoryId).HasDatabaseName("IX_TerritoryUnlockConditions_TerritoryId");
+                e.ToTable("TerritoryUnlockConditions");
+            });
+
+            // TERRITORY OWNERSHIP HISTORY (HLN-8 audit log)
+            modelBuilder.Entity<TerritoryOwnershipHistory>(e =>
+            {
+                e.HasKey(h => h.Id);
+                e.Property(h => h.ActionType).HasConversion<int>();
+                e.Property(h => h.ActionScore).HasPrecision(12, 4);
+                e.Property(h => h.Metadata).HasColumnType("jsonb");
+                e.HasOne(h => h.Territory)
+                 .WithMany(t => t.OwnershipHistory)
+                 .HasForeignKey(h => h.TerritoryId)
+                 .IsRequired()
+                 .OnDelete(DeleteBehavior.Cascade);
+                e.HasOne(h => h.PreviousOwnerUser)
+                 .WithMany()
+                 .HasForeignKey(h => h.PreviousOwnerUserId)
+                 .IsRequired(false)
+                 .OnDelete(DeleteBehavior.SetNull);
+                e.HasOne(h => h.NewOwnerUser)
+                 .WithMany()
+                 .HasForeignKey(h => h.NewOwnerUserId)
+                 .IsRequired()
+                 .OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(h => h.ActionRun)
+                 .WithMany()
+                 .HasForeignKey(h => h.ActionRunId)
+                 .IsRequired()
+                 .OnDelete(DeleteBehavior.Restrict);
+                e.HasIndex(h => new { h.TerritoryId, h.ActionRunId }).IsUnique().HasDatabaseName("UQ_territory_ownership_history_territory_run");
+                e.HasIndex(h => new { h.TerritoryId, h.ActionAt }).HasDatabaseName("IX_territory_ownership_history_territory_action_at");
+                e.HasIndex(h => h.ActionRunId).HasDatabaseName("IX_territory_ownership_history_action_run_id");
+                e.HasIndex(h => new { h.NewOwnerUserId, h.ActionAt }).HasDatabaseName("IX_territory_ownership_history_new_owner_action_at");
+                e.ToTable("territory_ownership_history");
             });
         }
     }
