@@ -86,6 +86,9 @@ builder.Services.AddHttpClient<IMealParsingService, MealParsingService>(client =
 builder.Services.AddScoped<IMealService, MealService>();
 builder.Services.AddScoped<IChallengeService, ChallengeService>();
 builder.Services.AddScoped<IChallengeProgressService, ChallengeProgressService>();
+builder.Services.AddScoped<TerritoryAchievementService>();
+builder.Services.AddScoped<ITerritoryScoreEngine, TerritoryScoreEngine>();
+builder.Services.AddScoped<ITerritoryClaimDefendService, TerritoryClaimDefendService>();
 builder.Services.AddScoped<IBadgeService, BadgeService>();
 builder.Services.AddScoped<IRunningAnalyticsService, RunningAnalyticsService>();
 builder.Services.AddSingleton<PolylineDecoder>();
