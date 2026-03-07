@@ -44,7 +44,6 @@ namespace GradProject.Infrastructure.Services.Gamification
                     _logger.LogDebug("RunningActivity {RunId} has zero or negative distance, skipping challenge progress update", runId);
                     return;
                 }
-
                 var now = DateTime.UtcNow;
 
                 // Query active UserChallenges
@@ -110,7 +109,7 @@ namespace GradProject.Infrastructure.Services.Gamification
                     _logger.LogDebug("Negative calories for user {UserId}, skipping challenge progress update", userId);
                     return;
                 }
-
+                
                 var now = DateTime.UtcNow;
 
                 // Query active UserChallenges for nutrition challenges
