@@ -11,6 +11,8 @@ namespace GradProject.Application.DTOs.Nutrition
         public string? RawText { get; set; }
         public string? Notes { get; set; }
 
+        public string? Feedback { get; set; }
+
         public List<MealFoodResponseDto> Foods { get; set; } = new();
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
