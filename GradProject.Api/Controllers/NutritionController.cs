@@ -87,9 +87,39 @@ namespace GradProject.Api.Controllers
 
             var userId = GetUserIdOrThrow();
             var summary = await _dailyIntakeAggregationService.GetDailySummaryAsync(userId, dateOnly, ct);
-            return summary == null
+            /* return summary == null
                 ? NotFound(new { message = $"No daily summary found for {dateOnly:yyyy-MM-dd}" })
-                : Ok(summary);
+                : Ok(summary);*/ //bir sıkıntı olmazsa bunu sil
+            if (summary == null)
+            {
+                return NotFound(new { message = $"No daily summary found for {dateOnly:yyyy-MM-dd}" });
+            }
+
+            try
+            {
+                var tdeeInfo = await _nutritionCalculationService.GetMyTdeeAsync(userId, ct);
+                var lang = GetLangFromHeader() ?? "en";
+                summary.AiFeedback = await GenerateDailyAiFeedback(summary, tdeeInfo, lang, ct);
+            }
+            catch
+            {
+                summary.AiFeedback = null;
+            }
+
+            return Ok(summary);
+        }
+        private async Task<string?> GenerateDailyAiFeedback(DailySummaryDto summary, TdeeResultDto tdee, string lang, CancellationToken ct)
+        {
+            var payload = new
+            {
+                totalIntake = (int)summary.TotalIntakeCalories,
+                targetTdee = (int)tdee.Tdee,
+                bmi = (double)tdee.Bmi,
+                gender = tdee.Gender?.ToString() ?? "Unknown",
+                language = lang ?? "en"
+            };
+
+            return await _mealParsingService.GetDailyFeedbackAsync(payload, ct);
         }
 
         /// <summary>
@@ -149,6 +179,7 @@ namespace GradProject.Api.Controllers
             };
 
             var savedMeal = await _mealService.CreateAsync(userId, createMealRequest, ct);
+            savedMeal.Feedback = parseResult.Feedback;
 
             foreach (var food in savedMeal.Foods)
             {

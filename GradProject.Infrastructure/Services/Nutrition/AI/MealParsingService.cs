@@ -58,6 +58,7 @@ namespace GradProject.Infrastructure.Services.Nutrition.AI
                 TotalProteinG = (decimal)aiResponse.TotalProtein,
                 TotalFatG = (decimal)aiResponse.TotalFat,
                 TotalCarbG = (decimal)aiResponse.TotalCarbs,
+                Feedback = aiResponse.Feedback,
                 Items = aiResponse.Items.Select(i => new MealParseItemDto
                 {
                     Raw = i.Raw,
@@ -163,7 +164,20 @@ namespace GradProject.Infrastructure.Services.Nutrition.AI
             var response = await _httpClient.PostAsJsonAsync("/load-foods", payload, ct);
             response.EnsureSuccessStatusCode();
         }
+        public async Task<string?> GetDailyFeedbackAsync(object payload, CancellationToken ct)
+        {
+            var response = await _httpClient.PostAsJsonAsync("/generate-daily-feedback", payload, ct);
+            if (!response.IsSuccessStatusCode) return null;
 
+            var result = await response.Content.ReadFromJsonAsync<DailyAiFeedbackResponse>(ct);
+            return result?.AiFeedback;
+        }
+
+        private class DailyAiFeedbackResponse
+        {
+            [JsonPropertyName("aiFeedback")]
+            public string? AiFeedback { get; set; }
+        }
         private class PythonMealResponse
         {
             [JsonPropertyName("originalText")]
@@ -183,6 +197,8 @@ namespace GradProject.Infrastructure.Services.Nutrition.AI
             public double TotalCarbs { get; set; }
             [JsonPropertyName("totalFat")]
             public double TotalFat { get; set; }
+            [JsonPropertyName("feedback")]
+            public string? Feedback { get; set; }
         }
 
         private class PythonParsedItem

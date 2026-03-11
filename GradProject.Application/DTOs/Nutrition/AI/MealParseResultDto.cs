@@ -11,5 +11,7 @@ namespace GradProject.Application.DTOs.Nutrition.AI
         public decimal TotalProteinG { get; set; }
         public decimal TotalFatG { get; set; }
         public decimal TotalCarbG { get; set; }
+
+        public string? Feedback { get; set; }
     }
 }
