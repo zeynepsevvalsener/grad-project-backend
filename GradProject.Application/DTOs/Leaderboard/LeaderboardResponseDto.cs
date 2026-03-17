@@ -3,11 +3,17 @@ using System.Text.Json.Serialization;
 namespace GradProject.Application.DTOs.Leaderboard;
 
 /// <summary>
-/// Represents the complete leaderboard response for a challenge, including paginated entries,
+/// Represents the complete leaderboard response (challenge-scoped or global), including paginated entries,
 /// optional current user entry, and pagination metadata.
 /// </summary>
 public class LeaderboardResponseDto
 {
+    /// <summary>
+    /// Challenge ID when challenge-scoped; null for global leaderboard.
+    /// </summary>
+    [JsonPropertyName("challengeId")]
+    public int? ChallengeId { get; set; }
+
     /// <summary>
     /// List of leaderboard entries for the requested page.
     /// </summary>
