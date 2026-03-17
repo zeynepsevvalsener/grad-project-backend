@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
 		<TargetFramework>net8.0</TargetFramework>
@@ -21,9 +21,10 @@
 		<Using Include="Xunit" />
 	</ItemGroup>
 
-	<ItemGroup>
-		<ProjectReference Include="..\GradProject.Infrastructure\GradProject.Infrastructure.csproj" />
-		<ProjectReference Include="..\GradProject.Application\GradProject.Application.csproj" />
-	</ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\GradProject.Api\GradProject.Api.csproj" />
+    <ProjectReference Include="..\GradProject.Infrastructure\GradProject.Infrastructure.csproj" />
+    <ProjectReference Include="..\GradProject.Application\GradProject.Application.csproj" />
+  </ItemGroup>
 
 </Project>

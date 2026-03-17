@@ -1,12 +1,16 @@
 namespace GradProject.Domain.Entities;
 
 /// <summary>
-/// Cached leaderboard entry for a challenge. One row per user per challenge per snapshot date.
+/// Cached leaderboard entry for a specific scope and date.
+/// ChallengeId == null represents the global (platform-wide) leaderboard snapshot.
+/// ChallengeId != null represents a challenge-scoped snapshot.
+/// One row per user per scope per snapshot date.
 /// </summary>
 public class LeaderboardSnapshot
 {
     public int Id { get; set; }
-    public int ChallengeId { get; set; }
+    /// <summary>null = global leaderboard; non-null = challenge-scoped leaderboard.</summary>
+    public int? ChallengeId { get; set; }
     public DateOnly SnapshotDate { get; set; }
     public int UserId { get; set; }
     public int Rank { get; set; }

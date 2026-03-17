@@ -32,6 +32,12 @@ public interface ILeaderboardService
     Task RefreshLeaderboardAsync(int challengeId, CancellationToken ct = default);
 
     /// <summary>
+    /// Runs platform-wide aggregation and ranking, then stores a global leaderboard snapshot
+    /// (ChallengeId = null) for today. Idempotent: replaces any existing global snapshot for today.
+    /// </summary>
+    Task RefreshGlobalLeaderboardAsync(CancellationToken ct = default);
+
+    /// <summary>
     /// Calculates individual user rank in a challenge
     /// </summary>
     /// <param name="challengeId">The ID of the challenge</param>

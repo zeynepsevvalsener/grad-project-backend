@@ -6,7 +6,7 @@ namespace GradProject.Infrastructure.Services.Leaderboard;
 
 /// <summary>
 /// Aggregates leaderboard data from database using a single query.
-/// Joins UserChallenges, Users, Profiles, Challenges, RunningActivities; sums distance and moving time per participant.
+/// Supports both challenge-scoped and global (platform-wide) aggregation.
 /// </summary>
 public class LeaderboardAggregator
 {
@@ -15,6 +15,36 @@ public class LeaderboardAggregator
     public LeaderboardAggregator(AppDbContext db)
     {
         _db = db;
+    }
+
+    /// <summary>
+    /// Retrieves platform-wide aggregated leaderboard data for all users who have running activity.
+    /// No challenge filter is applied; all recorded running activities are included.
+    /// TerritoryScore defaults to 0 (no per-user territory aggregation at the global scope yet).
+    /// CompletionSpeed is not applicable globally and is left as null.
+    /// </summary>
+    public async Task<List<LeaderboardAggregateData>> GetGlobalAggregatedDataAsync(
+        CancellationToken ct = default)
+    {
+        const string sql = """
+            SELECT u."Id" AS "UserId", u."Email",
+                   p."FirstName", p."LastName",
+                   NULL::float8 AS "TerritoryScore",
+                   NULL::bigint AS "TotalDurationSeconds",
+                   NULL::timestamptz AS "CompletedAt",
+                   MIN(ra."StartTime") AS "JoinedAt",
+                   '0001-01-01'::timestamptz AS "ChallengeStartDate",
+                   COALESCE(SUM(ra."DistanceMeters"), 0)::float8 AS "TotalDistance",
+                   COALESCE(SUM(ra."MovingTimeSeconds"), 0)::int4 AS "TotalMovingTime"
+            FROM "Users" u
+            JOIN "RunningActivities" ra ON ra."UserId" = u."Id"
+            LEFT JOIN "Profiles" p ON p."UserId" = u."Id"
+            GROUP BY u."Id", u."Email", p."FirstName", p."LastName"
+            """;
+
+        return await _db.Database
+            .SqlQueryRaw<LeaderboardAggregateData>(sql)
+            .ToListAsync(ct);
     }
 
     /// <summary>
