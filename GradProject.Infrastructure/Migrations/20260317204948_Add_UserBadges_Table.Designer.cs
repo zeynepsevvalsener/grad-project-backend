@@ -3,6 +3,7 @@ using System;
 using GradProject.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NetTopologySuite.Geometries;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace GradProject.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260317204948_Add_UserBadges_Table")]
+    partial class Add_UserBadges_Table
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -354,7 +357,7 @@ namespace GradProject.Infrastructure.Migrations
                     b.Property<double>("AveragePace")
                         .HasColumnType("double precision");
 
-                    b.Property<int?>("ChallengeId")
+                    b.Property<int>("ChallengeId")
                         .HasColumnType("integer");
 
                     b.Property<long?>("CompletionSpeed")
@@ -381,17 +384,10 @@ namespace GradProject.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ChallengeId", "SnapshotDate")
-                        .HasDatabaseName("IX_LeaderboardSnapshots_ChallengeId_SnapshotDate");
-
-                    b.HasIndex("SnapshotDate", "UserId")
-                        .IsUnique()
-                        .HasDatabaseName("IX_LeaderboardSnapshots_Global_SnapshotDate_UserId")
-                        .HasFilter("\"ChallengeId\" IS NULL");
+                    b.HasIndex("ChallengeId", "SnapshotDate");
 
                     b.HasIndex("ChallengeId", "SnapshotDate", "UserId")
-                        .IsUnique()
-                        .HasDatabaseName("IX_LeaderboardSnapshots_ChallengeId_SnapshotDate_UserId");
+                        .IsUnique();
 
                     b.ToTable("LeaderboardSnapshots");
                 });

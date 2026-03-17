@@ -19,6 +19,7 @@ namespace GradProject.Infrastructure.Persistence
 
         public DbSet<Challenge> Challenges => Set<Challenge>();
         public DbSet<Badge> Badges => Set<Badge>();
+        public DbSet<UserBadge> UserBadges => Set<UserBadge>();
         public DbSet<UserChallenge> UserChallenges => Set<UserChallenge>();
         public DbSet<LeaderboardSnapshot> LeaderboardSnapshots => Set<LeaderboardSnapshot>();
         public DbSet<FoodAlias> FoodAliases => Set<FoodAlias>();
@@ -470,6 +471,40 @@ namespace GradProject.Infrastructure.Persistence
                 {
                     t.HasCheckConstraint("CK_Badges_PointsReward_NonNegative", "\"PointsReward\" >= 0");
                 });
+            });
+
+            // USER BADGE (earned badges; one per user-badge pair for non-repeatable badges)
+            modelBuilder.Entity<UserBadge>(e =>
+            {
+                e.HasKey(ub => ub.Id);
+
+                e.Property(ub => ub.EarnedAtUtc)
+                 .IsRequired();
+
+                e.HasIndex(ub => ub.UserId)
+                 .HasDatabaseName("IX_UserBadges_UserId");
+
+                e.HasIndex(ub => ub.BadgeId)
+                 .HasDatabaseName("IX_UserBadges_BadgeId");
+
+                e.HasIndex(ub => ub.EarnedAtUtc)
+                 .HasDatabaseName("IX_UserBadges_EarnedAtUtc");
+
+                e.HasIndex(ub => new { ub.UserId, ub.BadgeId })
+                 .IsUnique()
+                 .HasDatabaseName("UX_UserBadges_UserId_BadgeId");
+
+                e.HasOne(ub => ub.User)
+                 .WithMany()
+                 .HasForeignKey(ub => ub.UserId)
+                 .IsRequired()
+                 .OnDelete(DeleteBehavior.Cascade);
+
+                e.HasOne(ub => ub.Badge)
+                 .WithMany()
+                 .HasForeignKey(ub => ub.BadgeId)
+                 .IsRequired()
+                 .OnDelete(DeleteBehavior.Restrict);
             });
 
             // USER CHALLENGE

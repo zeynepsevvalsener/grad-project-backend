@@ -1,3 +1,5 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using FluentValidation;
 using GradProject.Application.DTOs.Gamification;
 using GradProject.Application.Interfaces.Gamification;
@@ -36,6 +38,15 @@ namespace GradProject.Api.Controllers
         public async Task<ActionResult<IReadOnlyList<BadgeResponseDto>>> GetActive(CancellationToken ct)
         {
             var items = await _service.GetActiveAsync(ct);
+            return Ok(items);
+        }
+
+        /// <summary>Returns the current user's earned badges (newest first).</summary>
+        [HttpGet("me")]
+        public async Task<ActionResult<IReadOnlyList<UserBadgeResponseDto>>> GetMyBadges(CancellationToken ct)
+        {
+            var userId = GetUserIdOrThrow();
+            var items = await _service.GetUserBadgesAsync(userId, ct);
             return Ok(items);
         }
 
@@ -87,6 +98,14 @@ namespace GradProject.Api.Controllers
         {
             var ok = await _service.DeleteAsync(id, ct);
             return ok ? NoContent() : NotFound();
+        }
+
+        private int GetUserIdOrThrow()
+        {
+            var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrWhiteSpace(sub) || !int.TryParse(sub, out var userId))
+                throw new UnauthorizedAccessException("Invalid token.");
+            return userId;
         }
     }
 }

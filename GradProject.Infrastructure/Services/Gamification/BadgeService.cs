@@ -4,16 +4,19 @@ using GradProject.Domain.Entities;
 using GradProject.Domain.Enums;
 using GradProject.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace GradProject.Infrastructure.Services.Gamification
 {
     public class BadgeService : IBadgeService
     {
         private readonly AppDbContext _db;
+        private readonly ILogger<BadgeService> _logger;
 
-        public BadgeService(AppDbContext db)
+        public BadgeService(AppDbContext db, ILogger<BadgeService> logger)
         {
             _db = db;
+            _logger = logger;
         }
 
         public async Task<IReadOnlyList<BadgeResponseDto>> GetAllAsync(CancellationToken ct = default)
@@ -104,6 +107,92 @@ namespace GradProject.Infrastructure.Services.Gamification
             await _db.SaveChangesAsync(ct);
 
             return true;
+        }
+
+        public async Task<IReadOnlyList<UserBadgeResponseDto>> GetUserBadgesAsync(int userId, CancellationToken ct = default)
+        {
+            var exists = await _db.Users.AnyAsync(u => u.Id == userId, ct);
+            if (!exists)
+                return Array.Empty<UserBadgeResponseDto>();
+
+            var list = await _db.UserBadges
+                .AsNoTracking()
+                .Where(ub => ub.UserId == userId)
+                .Include(ub => ub.Badge)
+                .OrderByDescending(ub => ub.EarnedAtUtc)
+                .ToListAsync(ct);
+
+            return list.Select(ub => MapToUserBadgeResponseDto(ub)).ToList();
+        }
+
+        // TODO (BE-3 Badge Engine / notifications): Optional BadgeEvent table for audit/notification pipeline:
+        // BadgeEvents (id, user_id, badge_id, event_type, created_at_utc, source, metadata_json). Use when event pipeline is implemented.
+        public async Task<AwardBadgeResult> AwardBadgeAsync(int userId, int badgeId, CancellationToken ct = default)
+        {
+            var userExists = await _db.Users.AnyAsync(u => u.Id == userId, ct);
+            if (!userExists)
+                return AwardBadgeResult.UserNotFound;
+
+            var badge = await _db.Badges.FirstOrDefaultAsync(b => b.Id == badgeId && b.IsActive, ct);
+            if (badge == null)
+                return AwardBadgeResult.BadgeNotFound;
+
+            var alreadyEarned = await _db.UserBadges
+                .AnyAsync(ub => ub.UserId == userId && ub.BadgeId == badgeId, ct);
+            if (alreadyEarned)
+                return AwardBadgeResult.AlreadyExists;
+
+            var userBadge = new UserBadge
+            {
+                UserId = userId,
+                BadgeId = badgeId,
+                EarnedAtUtc = DateTime.UtcNow
+            };
+            _db.UserBadges.Add(userBadge);
+
+            try
+            {
+                await _db.SaveChangesAsync(ct);
+                return AwardBadgeResult.Created;
+            }
+            catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
+            {
+                return AwardBadgeResult.AlreadyExists;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to award badge {BadgeId} to user {UserId}", badgeId, userId);
+                return AwardBadgeResult.Failed;
+            }
+        }
+
+        private static bool IsUniqueConstraintViolation(DbUpdateException ex)
+        {
+            var inner = ex.InnerException;
+            while (inner != null)
+            {
+                if (inner is Npgsql.PostgresException pg && pg.SqlState == "23505")
+                    return true;
+                inner = inner.InnerException;
+            }
+            return false;
+        }
+
+        private static UserBadgeResponseDto MapToUserBadgeResponseDto(UserBadge ub)
+        {
+            if (ub.Badge is null)
+                throw new InvalidOperationException("Badge must be loaded on UserBadge.");
+            var b = ub.Badge;
+            return new UserBadgeResponseDto
+            {
+                BadgeId = b.Id,
+                Name = b.Name,
+                Description = b.Description,
+                Type = b.Type,
+                IconUrl = b.IconUrl,
+                PointsReward = b.PointsReward,
+                EarnedAtUtc = ub.EarnedAtUtc
+            };
         }
 
         private static BadgeResponseDto MapToResponseDto(Badge badge)
