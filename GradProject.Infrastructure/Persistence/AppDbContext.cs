@@ -521,8 +521,18 @@ namespace GradProject.Infrastructure.Persistence
             modelBuilder.Entity<LeaderboardSnapshot>(e =>
             {
                 e.HasKey(s => s.Id);
-                e.HasIndex(s => new { s.ChallengeId, s.SnapshotDate, s.UserId }).IsUnique();
-                e.HasIndex(s => new { s.ChallengeId, s.SnapshotDate });
+                // Challenge-scoped snapshot unique index: one row per user per challenge per date.
+                e.HasIndex(s => new { s.ChallengeId, s.SnapshotDate, s.UserId })
+                 .IsUnique()
+                 .HasDatabaseName("IX_LeaderboardSnapshots_ChallengeId_SnapshotDate_UserId");
+                e.HasIndex(s => new { s.ChallengeId, s.SnapshotDate })
+                 .HasDatabaseName("IX_LeaderboardSnapshots_ChallengeId_SnapshotDate");
+                // Partial unique index for global snapshots (ChallengeId IS NULL):
+                // ensures one row per user per date for the global leaderboard scope.
+                e.HasIndex(s => new { s.SnapshotDate, s.UserId })
+                 .IsUnique()
+                 .HasFilter("\"ChallengeId\" IS NULL")
+                 .HasDatabaseName("IX_LeaderboardSnapshots_Global_SnapshotDate_UserId");
             });
 
             // TERRITORY (HLN-8 claim/defend ownership)
