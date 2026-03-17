@@ -1,44 +1,43 @@
 using GradProject.Application.DTOs.Leaderboard;
-using GradProject.Domain.Enums;
 
 namespace GradProject.Application.Services.Leaderboard;
 
 /// <summary>
-/// Deterministic multi-criteria ranking. Sort order varies by ChallengeMetric; UserId tie-breaker.
+/// Deterministic multi-criteria ranking aligned with SoW (HLN-8).
+/// <para>
+/// Fixed sort order (all leaderboards):
+///   1. Territory score DESC (null → 0)
+///   2. Total distance DESC
+///   3. Pace ASC (seconds per km — lower is better; no distance → double.MaxValue)
+///   4. Completion speed ASC (seconds from challenge start to finish — lower is better; null → long.MaxValue)
+///   5. UserId ASC (deterministic tie-breaker)
+/// </para>
+/// <para>Standard 1-based rank; no dense ranking.</para>
 /// </summary>
 public class RankingEngine
 {
     /// <summary>
-    /// Calculates ranks. Primary sort by metric: Distance→TotalDistance, Pace→AveragePace, Duration→CompletionSpeed; else Territory+Distance+Pace+Completion (karma).
+    /// Ranks the aggregated data using the fixed SoW sort order.
     /// </summary>
-    public List<LeaderboardEntryDto> CalculateRanks(
-        List<LeaderboardAggregateData> aggregatedData,
-        ChallengeMetric? metric = null)
+    public List<LeaderboardEntryDto> CalculateRanks(List<LeaderboardAggregateData> aggregatedData)
     {
-        // Always prioritize TerritoryScore as the primary sorting rule
-        var ordered = aggregatedData
+        var sorted = aggregatedData
             .OrderByDescending(x => x.TerritoryScore ?? 0)
-            .ThenByDescending(x => metric == ChallengeMetric.Distance ? x.TotalDistance : 0)
-            .ThenBy(x => metric == ChallengeMetric.Pace ? x.AveragePace : double.MaxValue)
-            .ThenBy(x => metric == ChallengeMetric.Duration ? (x.CompletionSpeed ?? long.MaxValue) : long.MaxValue)
             .ThenByDescending(x => x.TotalDistance)
             .ThenBy(x => x.AveragePace)
             .ThenBy(x => x.CompletionSpeed ?? long.MaxValue)
-            .ThenBy(x => x.UserId);
+            .ThenBy(x => x.UserId)
+            .ToList();
 
-        var sorted = ordered.ToList();
-        // Map aggregated data to response DTOs with formatted values
-        var ranked = sorted.Select((entry, index) => new LeaderboardEntryDto
+        return sorted.Select((entry, index) => new LeaderboardEntryDto
         {
-            Rank = index + 1,  // 1-based ranking (first place = 1)
+            Rank = index + 1,
             UserId = entry.UserId,
             Username = entry.Username,
             TerritoryScore = entry.TerritoryScore,
             TotalDistance = (long)entry.TotalDistance,
-            AveragePace = Math.Round(entry.AveragePace, 2),  // Round to 2 decimal places
+            AveragePace = Math.Round(entry.AveragePace, 2),
             CompletionSpeed = entry.CompletionSpeed
         }).ToList();
-
-        return ranked;
     }
 }

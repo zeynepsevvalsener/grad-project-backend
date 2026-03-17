@@ -3,10 +3,22 @@ namespace GradProject.Application.Interfaces.Leaderboard;
 using GradProject.Application.DTOs.Leaderboard;
 
 /// <summary>
-/// Service interface for leaderboard operations in challenges
+/// Service interface for leaderboard operations (challenge-scoped and global).
 /// </summary>
 public interface ILeaderboardService
 {
+    /// <summary>
+    /// Retrieves paginated global leaderboard across all challenges and running activities.
+    /// Eligible users: anyone with at least one UserChallenge or RunningActivity.
+    /// </summary>
+    Task<LeaderboardResponseDto> GetGlobalLeaderboardAsync(
+        int page,
+        int pageSize,
+        int? userId,
+        int? limit,
+        string? period = null,
+        CancellationToken ct = default);
+
     /// <summary>
     /// Retrieves paginated leaderboard for a challenge
     /// </summary>

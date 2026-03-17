@@ -2,7 +2,6 @@ using System.Diagnostics;
 using GradProject.Application.DTOs.Leaderboard;
 using GradProject.Application.Interfaces.Leaderboard;
 using GradProject.Domain.Entities;
-using GradProject.Domain.Enums;
 using GradProject.Application.Services.Leaderboard;
 using GradProject.Application.Validators.Leaderboard;
 using GradProject.Infrastructure.Persistence;
@@ -12,7 +11,7 @@ using Microsoft.Extensions.Logging;
 namespace GradProject.Infrastructure.Services.Leaderboard;
 
 /// <summary>
-/// Service for calculating and retrieving challenge leaderboards.
+/// Service for calculating and retrieving challenge and global leaderboards.
 /// Orchestrates validation, aggregation, ranking, and pagination.
 /// </summary>
 public class LeaderboardService : ILeaderboardService
@@ -137,22 +136,14 @@ public class LeaderboardService : ILeaderboardService
             }
             else
             {
-                var metric = await _db.Challenges
-                    .Where(c => c.Id == challengeId)
-                    .Select(c => (ChallengeMetric?)c.Metric)
-                    .FirstOrDefaultAsync(ct);
                 var aggregatedData = await _aggregator.GetAggregatedDataAsync(challengeId, null, ct);
-                rankedEntries = _rankingEngine.CalculateRanks(aggregatedData, metric);
+                rankedEntries = _rankingEngine.CalculateRanks(aggregatedData);
             }
         }
         else
         {
-            var metric = await _db.Challenges
-                .Where(c => c.Id == challengeId)
-                .Select(c => (ChallengeMetric?)c.Metric)
-                .FirstOrDefaultAsync(ct);
             var aggregatedData = await _aggregator.GetAggregatedDataAsync(challengeId, dateRange, ct);
-            rankedEntries = _rankingEngine.CalculateRanks(aggregatedData, metric);
+            rankedEntries = _rankingEngine.CalculateRanks(aggregatedData);
         }
 
         // Apply limit if provided (for top-N queries)
@@ -211,6 +202,105 @@ public class LeaderboardService : ILeaderboardService
 
         return new LeaderboardResponseDto
         {
+            ChallengeId = challengeId,
+            Entries = paginatedEntries,
+            CurrentUserEntry = currentUserEntry,
+            Pagination = pagination
+        };
+    }
+
+    /// <inheritdoc />
+    public async Task<LeaderboardResponseDto> GetGlobalLeaderboardAsync(
+        int page,
+        int pageSize,
+        int? userId,
+        int? limit,
+        string? period = null,
+        CancellationToken ct = default)
+    {
+        var stopwatch = Stopwatch.StartNew();
+
+        _logger.LogInformation(
+            "Starting global leaderboard query: page={Page}, pageSize={PageSize}, userId={UserId}, limit={Limit}",
+            page, pageSize, userId, limit);
+
+        var query = new LeaderboardQuery
+        {
+            Page = page,
+            PageSize = pageSize,
+            Limit = limit,
+            UserId = userId
+        };
+
+        var validationResult = _validator.Validate(query);
+        if (!validationResult.IsValid)
+            throw new ArgumentException(validationResult.ErrorMessage);
+
+        page = page == 0 ? 1 : page;
+        pageSize = pageSize == 0 ? 20 : pageSize;
+
+        (DateTime From, DateTime To)? dateRange = null;
+        if (string.Equals(period, "week", StringComparison.OrdinalIgnoreCase))
+        {
+            var now = DateTime.UtcNow;
+            var offset = (int)now.DayOfWeek - (int)DayOfWeek.Monday;
+            if (offset < 0) offset += 7;
+            var startOfWeek = now.Date.AddDays(-offset);
+            dateRange = (startOfWeek, now);
+        }
+        else if (string.Equals(period, "month", StringComparison.OrdinalIgnoreCase))
+        {
+            var now = DateTime.UtcNow;
+            var startOfMonth = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+            dateRange = (startOfMonth, now);
+        }
+
+        var aggregatedData = await _aggregator.GetGlobalAggregatedDataAsync(dateRange, ct);
+        var rankedEntries = _rankingEngine.CalculateRanks(aggregatedData);
+
+        if (limit.HasValue)
+            rankedEntries = rankedEntries.Take(limit.Value).ToList();
+
+        var totalCount = rankedEntries.Count;
+        var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
+
+        LeaderboardEntryDto? currentUserEntry = null;
+        if (userId.HasValue)
+            currentUserEntry = rankedEntries.FirstOrDefault(e => e.UserId == userId.Value);
+
+        var paginatedEntries = rankedEntries
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToList();
+
+        var pagination = new PaginationMetadata
+        {
+            TotalCount = totalCount,
+            CurrentPage = page,
+            PageSize = pageSize,
+            TotalPages = totalPages,
+            HasNextPage = page < totalPages,
+            HasPreviousPage = page > 1
+        };
+
+        stopwatch.Stop();
+        var executionTimeMs = stopwatch.ElapsedMilliseconds;
+
+        if (executionTimeMs > 2000)
+        {
+            _logger.LogWarning(
+                "Slow global leaderboard query: executionTime={ExecutionTimeMs}ms, participantCount={ParticipantCount}, resultCount={ResultCount}",
+                executionTimeMs, totalCount, paginatedEntries.Count);
+        }
+        else
+        {
+            _logger.LogInformation(
+                "Global leaderboard query completed: executionTime={ExecutionTimeMs}ms, participantCount={ParticipantCount}, resultCount={ResultCount}",
+                executionTimeMs, totalCount, paginatedEntries.Count);
+        }
+
+        return new LeaderboardResponseDto
+        {
             Entries = paginatedEntries,
             CurrentUserEntry = currentUserEntry,
             Pagination = pagination
@@ -220,15 +310,12 @@ public class LeaderboardService : ILeaderboardService
     /// <inheritdoc />
     public async Task RefreshLeaderboardAsync(int challengeId, CancellationToken ct = default)
     {
-        var challenge = await _db.Challenges
-            .Where(c => c.Id == challengeId)
-            .Select(c => new { c.Metric })
-            .FirstOrDefaultAsync(ct);
-        if (challenge == null)
+        var challengeExists = await _db.Challenges.AnyAsync(c => c.Id == challengeId, ct);
+        if (!challengeExists)
             throw new KeyNotFoundException($"Challenge with ID {challengeId} not found");
 
         var data = await _aggregator.GetAggregatedDataAsync(challengeId, null, ct);
-        var ranked = _rankingEngine.CalculateRanks(data, challenge.Metric);
+        var ranked = _rankingEngine.CalculateRanks(data);
 
         await PersistSnapshotAsync(ranked, challengeId, ct);
     }
@@ -297,11 +384,8 @@ public class LeaderboardService : ILeaderboardService
             "Starting user rank query for challengeId={ChallengeId}, userId={UserId}",
             challengeId, userId);
 
-        var challenge = await _db.Challenges
-            .Where(c => c.Id == challengeId)
-            .Select(c => new { c.Metric })
-            .FirstOrDefaultAsync(ct);
-        if (challenge == null)
+        var challengeExists = await _db.Challenges.AnyAsync(c => c.Id == challengeId, ct);
+        if (!challengeExists)
             throw new KeyNotFoundException($"Challenge with ID {challengeId} not found");
 
         var userParticipates = await _db.UserChallenges
@@ -310,7 +394,7 @@ public class LeaderboardService : ILeaderboardService
             throw new KeyNotFoundException($"User {userId} is not participating in challenge {challengeId}");
 
         var aggregatedData = await _aggregator.GetAggregatedDataAsync(challengeId, null, ct);
-        var rankedEntries = _rankingEngine.CalculateRanks(aggregatedData, challenge.Metric);
+        var rankedEntries = _rankingEngine.CalculateRanks(aggregatedData);
 
         // Find and return user's entry
         var userEntry = rankedEntries.FirstOrDefault(e => e.UserId == userId);

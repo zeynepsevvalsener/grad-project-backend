@@ -5,8 +5,8 @@ using Microsoft.EntityFrameworkCore;
 namespace GradProject.Infrastructure.Services.Leaderboard;
 
 /// <summary>
-/// Aggregates leaderboard data from database using a single query.
-/// Supports both challenge-scoped and global (platform-wide) aggregation.
+/// Aggregates leaderboard data from database using raw SQL queries.
+/// Supports both challenge-scoped and global aggregation.
 /// </summary>
 public class LeaderboardAggregator
 {
@@ -18,32 +18,100 @@ public class LeaderboardAggregator
     }
 
     /// <summary>
-    /// Retrieves platform-wide aggregated leaderboard data for all users who have running activity.
-    /// No challenge filter is applied; all recorded running activities are included.
-    /// TerritoryScore defaults to 0 (no per-user territory aggregation at the global scope yet).
-    /// CompletionSpeed is not applicable globally and is left as null.
+    /// Retrieves global aggregated leaderboard data across all challenges and running activities.
+    /// Eligible users: anyone with at least one UserChallenge or one RunningActivity.
+    /// Territory score = SUM of UserChallenge.TerritoryScore across all challenges.
+    /// Distance/moving time = SUM of all RunningActivities (optionally filtered by date range).
+    /// CompletedAt is always null (no single challenge), so CompletionSpeed will be null.
     /// </summary>
     public async Task<List<LeaderboardAggregateData>> GetGlobalAggregatedDataAsync(
+        (DateTime From, DateTime To)? dateRange = null,
         CancellationToken ct = default)
     {
-        const string sql = """
-            SELECT u."Id" AS "UserId", u."Email",
-                   p."FirstName", p."LastName",
-                   NULL::float8 AS "TerritoryScore",
-                   NULL::bigint AS "TotalDurationSeconds",
-                   NULL::timestamptz AS "CompletedAt",
-                   MIN(ra."StartTime") AS "JoinedAt",
-                   '0001-01-01'::timestamptz AS "ChallengeStartDate",
-                   COALESCE(SUM(ra."DistanceMeters"), 0)::float8 AS "TotalDistance",
-                   COALESCE(SUM(ra."MovingTimeSeconds"), 0)::int4 AS "TotalMovingTime"
-            FROM "Users" u
-            JOIN "RunningActivities" ra ON ra."UserId" = u."Id"
-            LEFT JOIN "Profiles" p ON p."UserId" = u."Id"
-            GROUP BY u."Id", u."Email", p."FirstName", p."LastName"
-            """;
+        string sql;
+        object[] args;
+
+        if (dateRange.HasValue)
+        {
+            var (from, to) = dateRange.Value;
+            sql = """
+                SELECT eligible."UserId",
+                       u."Email",
+                       p."FirstName",
+                       p."LastName",
+                       ts."TerritoryScore",
+                       NULL::bigint AS "TotalDurationSeconds",
+                       NULL::timestamp AS "CompletedAt",
+                       COALESCE(ts."EarliestJoin", NOW()) AS "JoinedAt",
+                       COALESCE(ts."EarliestJoin", NOW()) AS "ChallengeStartDate",
+                       COALESCE(ra_agg."Distance", 0)::float8 AS "TotalDistance",
+                       COALESCE(ra_agg."MovingTime", 0)::int4 AS "TotalMovingTime"
+                FROM (
+                    SELECT DISTINCT "UserId" FROM "UserChallenges"
+                    UNION
+                    SELECT DISTINCT "UserId" FROM "RunningActivities"
+                ) eligible
+                JOIN "Users" u ON eligible."UserId" = u."Id"
+                LEFT JOIN "Profiles" p ON u."Id" = p."UserId"
+                LEFT JOIN (
+                    SELECT uc."UserId",
+                           SUM(COALESCE(uc."TerritoryScore", 0)) AS "TerritoryScore",
+                           MIN(uc."JoinedAt") AS "EarliestJoin"
+                    FROM "UserChallenges" uc
+                    GROUP BY uc."UserId"
+                ) ts ON eligible."UserId" = ts."UserId"
+                LEFT JOIN (
+                    SELECT ra."UserId",
+                           SUM(ra."DistanceMeters") AS "Distance",
+                           SUM(ra."MovingTimeSeconds") AS "MovingTime"
+                    FROM "RunningActivities" ra
+                    WHERE ra."StartTime" >= {0} AND ra."StartTime" <= {1}
+                    GROUP BY ra."UserId"
+                ) ra_agg ON eligible."UserId" = ra_agg."UserId"
+                """;
+            args = new object[] { from, to };
+        }
+        else
+        {
+            sql = """
+                SELECT eligible."UserId",
+                       u."Email",
+                       p."FirstName",
+                       p."LastName",
+                       ts."TerritoryScore",
+                       NULL::bigint AS "TotalDurationSeconds",
+                       NULL::timestamp AS "CompletedAt",
+                       COALESCE(ts."EarliestJoin", NOW()) AS "JoinedAt",
+                       COALESCE(ts."EarliestJoin", NOW()) AS "ChallengeStartDate",
+                       COALESCE(ra_agg."Distance", 0)::float8 AS "TotalDistance",
+                       COALESCE(ra_agg."MovingTime", 0)::int4 AS "TotalMovingTime"
+                FROM (
+                    SELECT DISTINCT "UserId" FROM "UserChallenges"
+                    UNION
+                    SELECT DISTINCT "UserId" FROM "RunningActivities"
+                ) eligible
+                JOIN "Users" u ON eligible."UserId" = u."Id"
+                LEFT JOIN "Profiles" p ON u."Id" = p."UserId"
+                LEFT JOIN (
+                    SELECT uc."UserId",
+                           SUM(COALESCE(uc."TerritoryScore", 0)) AS "TerritoryScore",
+                           MIN(uc."JoinedAt") AS "EarliestJoin"
+                    FROM "UserChallenges" uc
+                    GROUP BY uc."UserId"
+                ) ts ON eligible."UserId" = ts."UserId"
+                LEFT JOIN (
+                    SELECT ra."UserId",
+                           SUM(ra."DistanceMeters") AS "Distance",
+                           SUM(ra."MovingTimeSeconds") AS "MovingTime"
+                    FROM "RunningActivities" ra
+                    GROUP BY ra."UserId"
+                ) ra_agg ON eligible."UserId" = ra_agg."UserId"
+                """;
+            args = Array.Empty<object>();
+        }
 
         return await _db.Database
-            .SqlQueryRaw<LeaderboardAggregateData>(sql)
+            .SqlQueryRaw<LeaderboardAggregateData>(sql, args)
             .ToListAsync(ct);
     }
 

@@ -3,6 +3,13 @@ namespace GradProject.Application.DTOs.Leaderboard;
 /// <summary>
 /// Internal class for aggregating leaderboard data from database queries.
 /// Contains database-mapped properties and computed properties for ranking calculations.
+/// <para>Edge-case handling for ranking:
+///   - Null TerritoryScore → treated as 0 (ranks last among scored users).
+///   - Zero TotalDistance → AveragePace = double.MaxValue (ranks last on pace).
+///   - Null CompletedAt → CompletionSpeed = null → treated as long.MaxValue (ranks last on speed).
+///   - Ties across all metrics → broken deterministically by UserId ASC.
+///   - Users with no runs are included (0 distance, worst pace) and appear at the bottom.
+/// </para>
 /// </summary>
 public class LeaderboardAggregateData
 {
