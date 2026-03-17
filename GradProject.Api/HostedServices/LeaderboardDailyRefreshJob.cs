@@ -60,12 +60,43 @@ public class LeaderboardDailyRefreshJob : BackgroundService
         return next - now;
     }
 
+    /// <summary>
+    /// Exposed internally so the test project can drive a single refresh cycle
+    /// without triggering the scheduling delay loop.
+    /// </summary>
+    internal Task RunRefreshForTestAsync(CancellationToken ct) => RunRefreshAsync(ct);
+
     private async Task RunRefreshAsync(CancellationToken ct)
     {
+        _logger.LogInformation("Leaderboard daily refresh started.");
+
         using var scope = _serviceProvider.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var leaderboardService = scope.ServiceProvider.GetRequiredService<ILeaderboardService>();
 
+        // Step 1: Refresh global leaderboard snapshot. A failure here does not prevent
+        // challenge snapshots from running so that partial success is still useful.
+        var globalFailed = false;
+        try
+        {
+            await leaderboardService.RefreshGlobalLeaderboardAsync(ct);
+            _logger.LogInformation("Global leaderboard snapshot refreshed successfully.");
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("Global leaderboard refresh was cancelled.");
+            return;
+        }
+        catch (Exception ex)
+        {
+            globalFailed = true;
+            _logger.LogError(ex, "Global leaderboard snapshot refresh failed.");
+        }
+
+        if (ct.IsCancellationRequested)
+            return;
+
+        // Step 2: Refresh per-challenge leaderboard snapshots.
         List<int> challengeIds;
         try
         {
@@ -80,8 +111,8 @@ public class LeaderboardDailyRefreshJob : BackgroundService
             return;
         }
 
-        var success = 0;
-        var failed = 0;
+        var challengeSuccess = 0;
+        var challengeFailed = 0;
         foreach (var challengeId in challengeIds)
         {
             if (ct.IsCancellationRequested)
@@ -89,16 +120,29 @@ public class LeaderboardDailyRefreshJob : BackgroundService
             try
             {
                 await leaderboardService.RefreshLeaderboardAsync(challengeId, ct);
-                success++;
+                challengeSuccess++;
             }
             catch (Exception ex)
             {
-                failed++;
+                challengeFailed++;
                 _logger.LogWarning(ex, "Leaderboard refresh failed for challenge {ChallengeId}.", challengeId);
             }
         }
 
-        if (failed > 0)
-            _logger.LogWarning("Leaderboard refresh completed with {Failed} failures for {Total} challenges.", failed, challengeIds.Count);
+        if (challengeFailed > 0 || globalFailed)
+        {
+            _logger.LogWarning(
+                "Leaderboard refresh completed with issues — global: {GlobalStatus}, challenges: {ChallengeFailed}/{ChallengeTotal} failed.",
+                globalFailed ? "FAILED" : "OK",
+                challengeFailed,
+                challengeIds.Count);
+        }
+        else
+        {
+            _logger.LogInformation(
+                "Leaderboard refresh completed successfully — global: OK, challenges: {ChallengeSuccess}/{ChallengeTotal}.",
+                challengeSuccess,
+                challengeIds.Count);
+        }
     }
 }

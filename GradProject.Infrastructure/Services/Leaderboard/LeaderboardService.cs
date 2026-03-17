@@ -317,10 +317,41 @@ public class LeaderboardService : ILeaderboardService
         var data = await _aggregator.GetAggregatedDataAsync(challengeId, null, ct);
         var ranked = _rankingEngine.CalculateRanks(data);
 
+        await PersistSnapshotAsync(ranked, challengeId, ct);
+    }
+
+    /// <inheritdoc />
+    public async Task RefreshGlobalLeaderboardAsync(CancellationToken ct = default)
+    {
+        var data = await _aggregator.GetGlobalAggregatedDataAsync(ct);
+        var ranked = _rankingEngine.CalculateRanks(data, ChallengeMetric.Distance);
+
+        await PersistSnapshotAsync(ranked, challengeId: null, ct);
+    }
+
+    /// <summary>
+    /// Replaces today's snapshot for the given scope (null = global, non-null = challenge).
+    /// Idempotent: any prior snapshot for (challengeId, today) is deleted before inserting the new one.
+    /// </summary>
+    private async Task PersistSnapshotAsync(
+        IEnumerable<LeaderboardEntryDto> ranked,
+        int? challengeId,
+        CancellationToken ct)
+    {
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        await _db.LeaderboardSnapshots
-            .Where(s => s.ChallengeId == challengeId && s.SnapshotDate == today)
-            .ExecuteDeleteAsync(ct);
+
+        if (challengeId.HasValue)
+        {
+            await _db.LeaderboardSnapshots
+                .Where(s => s.ChallengeId == challengeId.Value && s.SnapshotDate == today)
+                .ExecuteDeleteAsync(ct);
+        }
+        else
+        {
+            await _db.LeaderboardSnapshots
+                .Where(s => s.ChallengeId == null && s.SnapshotDate == today)
+                .ExecuteDeleteAsync(ct);
+        }
 
         var snapshots = ranked.Select(e => new LeaderboardSnapshot
         {
