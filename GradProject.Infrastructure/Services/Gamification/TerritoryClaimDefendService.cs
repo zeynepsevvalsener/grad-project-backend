@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GradProject.Application.DTOs.Gamification;
+using GradProject.Application.Interfaces;
 using GradProject.Application.Interfaces.Gamification;
 using GradProject.Domain.Entities;
 using GradProject.Domain.Enums;
@@ -229,7 +230,7 @@ public class TerritoryClaimDefendService : ITerritoryClaimDefendService
                         });
                         eventsToEmit.Add(new TerritoryEventDto
                         {
-                            EventType = "TERRITORY_DEFENDED",
+                            EventType = TerritoryEventDto.EventTypes.Defended,
                             UserId = userId,
                             TerritoryId = territoryId,
                             RunId = runId,
@@ -335,7 +336,7 @@ public class TerritoryClaimDefendService : ITerritoryClaimDefendService
                 });
                 eventsToEmit.Add(new TerritoryEventDto
                 {
-                    EventType = "TERRITORY_CLAIMED",
+                    EventType = TerritoryEventDto.EventTypes.Claimed,
                     UserId = userId,
                     TerritoryId = territory.Id,
                     RunId = runId,
@@ -410,7 +411,7 @@ public class TerritoryClaimDefendService : ITerritoryClaimDefendService
                 });
                 eventsToEmit.Add(new TerritoryEventDto
                 {
-                    EventType = "TERRITORY_TRANSFERRED",
+                    EventType = TerritoryEventDto.EventTypes.Transferred,
                     UserId = newOwnerId,
                     TerritoryId = territory.Id,
                     RunId = runId,
@@ -421,7 +422,7 @@ public class TerritoryClaimDefendService : ITerritoryClaimDefendService
                 });
                 eventsToEmit.Add(new TerritoryEventDto
                 {
-                    EventType = "TERRITORY_LOST",
+                    EventType = TerritoryEventDto.EventTypes.Lost,
                     UserId = previousOwnerId,
                     TerritoryId = territory.Id,
                     RunId = runId,
@@ -445,5 +446,74 @@ public class TerritoryClaimDefendService : ITerritoryClaimDefendService
 
         _logger.LogWarning("Transfer failed for territory {TerritoryId} after retries (concurrency)", territory.Id);
         rejected.Add(new RejectedTerritoryDto { TerritoryId = territory.Id, Reason = "CONCURRENCY_LOST" });
+    }
+
+    // -------------------------------------------------------------------------
+    // Territory event publishing
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Translates TerritoryEventDto items (populated inside the DB transaction) into
+    /// standardized AchievementEvents and publishes them after the transaction commits.
+    ///
+    /// Mapping:
+    ///   TERRITORY_CLAIMED     → TerritoryClaimed  (new owner, fresh territory)
+    ///   TERRITORY_TRANSFERRED → TerritoryClaimed  (new owner took from previous owner)
+    ///   TERRITORY_DEFENDED    → TerritoryDefended  (owner reinforced their territory)
+    ///   TERRITORY_LOST        → TerritoryLost      (previous owner loses the territory)
+    ///
+    /// Events may belong to different users (e.g. TERRITORY_LOST is for the previous owner).
+    /// Errors are caught per-event so one failure does not block the rest.
+    /// </summary>
+    private async Task PublishTerritoryEventsAsync(
+        IEnumerable<TerritoryEventDto> events,
+        CancellationToken ct)
+    {
+        foreach (var evt in events)
+        {
+            AchievementEventType? type = evt.EventType switch
+            {
+                TerritoryEventDto.EventTypes.Claimed     => AchievementEventType.TerritoryClaimed,
+                TerritoryEventDto.EventTypes.Transferred => AchievementEventType.TerritoryClaimed,
+                TerritoryEventDto.EventTypes.Defended    => AchievementEventType.TerritoryDefended,
+                TerritoryEventDto.EventTypes.Lost        => AchievementEventType.TerritoryLost,
+                _                                        => null
+            };
+
+            if (type == null)
+            {
+                _logger.LogWarning("Unknown territory event type '{EventType}' — skipping achievement event", evt.EventType);
+                continue;
+            }
+
+            // Claim and transfer both map to TerritoryClaimed, so they share the same key prefix.
+            var dedupKey = type.Value switch
+            {
+                AchievementEventType.TerritoryClaimed  => AchievementDeduplicationKeys.TerritoryClaimed(evt.UserId, evt.TerritoryId, evt.RunId),
+                AchievementEventType.TerritoryDefended => AchievementDeduplicationKeys.TerritoryDefended(evt.UserId, evt.TerritoryId, evt.RunId),
+                AchievementEventType.TerritoryLost     => AchievementDeduplicationKeys.TerritoryLost(evt.UserId, evt.TerritoryId, evt.RunId),
+                var other                              => $"{other.ToString().ToLower()}:{evt.UserId}:{evt.TerritoryId}:{evt.RunId}"
+            };
+
+            try
+            {
+                await _achievementPublisher.PublishAsync(new AchievementEventDto
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = evt.UserId,
+                    Type = type.Value,
+                    OccurredAt = evt.ActionAt,
+                    TerritoryId = evt.TerritoryId,
+                    RunId = evt.RunId,
+                    DeduplicationKey = dedupKey
+                }, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Failed to publish territory achievement event Type={Type} UserId={UserId} TerritoryId={TerritoryId}",
+                    type, evt.UserId, evt.TerritoryId);
+            }
+        }
     }
 }

@@ -1,36 +1,36 @@
 using DotNetEnv;
 using FluentValidation;
 using GradProject.Api.Middlewares;
+using GradProject.Api.Options;
+using GradProject.Api.HostedServices;
 using GradProject.Application.Interfaces;
-using GradProject.Application.Interfaces.Nutrition;
 using GradProject.Application.Interfaces.Gamification;
+using GradProject.Application.Interfaces.Leaderboard;
+using GradProject.Application.Interfaces.Nutrition;
+using GradProject.Application.Interfaces.Nutrition.AI;
 using GradProject.Application.Interfaces.Running;
 using GradProject.Application.Interfaces.Geometry;
 using GradProject.Application.Services.Polyline;
 using GradProject.Application.Services.Geometry;
+using GradProject.Application.Services.Leaderboard;
 using GradProject.Application.Utilities;
 using GradProject.Application.Validators.Auth;
 using GradProject.Infrastructure.Persistence;
 using GradProject.Infrastructure.Services;
-using GradProject.Infrastructure.Services.Geometry;
-using GradProject.Infrastructure.Services.Nutrition;
 using GradProject.Infrastructure.Services.Gamification;
+using GradProject.Infrastructure.Services.Geometry;
+using GradProject.Infrastructure.Services.Leaderboard;
+using GradProject.Infrastructure.Services.Nutrition;
+using GradProject.Infrastructure.Services.Nutrition.AI;
 using GradProject.Infrastructure.Services.Running;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models;
+using Serilog;
 using System.Text;
 using System.Text.Json.Serialization;
-using Microsoft.OpenApi.Models;
-using GradProject.Application.Interfaces.Nutrition.AI;
-using GradProject.Infrastructure.Services.Nutrition.AI;
-using GradProject.Application.Interfaces.Leaderboard;
-using GradProject.Infrastructure.Services.Leaderboard;
-using GradProject.Application.Services.Leaderboard;
-using GradProject.Api.Options;
-using GradProject.Api.HostedServices;
-using Serilog;
 
 DotNetEnv.Env.Load();
 
@@ -86,6 +86,7 @@ builder.Services.AddHttpClient<IMealParsingService, MealParsingService>(client =
 builder.Services.AddScoped<IMealService, MealService>();
 builder.Services.AddScoped<IChallengeService, ChallengeService>();
 builder.Services.AddScoped<IChallengeProgressService, ChallengeProgressService>();
+builder.Services.AddScoped<IAchievementEventPublisher, AchievementEventService>();
 builder.Services.AddScoped<TerritoryAchievementService>();
 builder.Services.AddScoped<ITerritoryScoreEngine, TerritoryScoreEngine>();
 builder.Services.AddScoped<ITerritoryClaimDefendService, TerritoryClaimDefendService>();
@@ -106,7 +107,7 @@ builder.Services.AddScoped<IFoodCanonicalResolver, FoodCanonicalResolver>();
 
 // Leaderboard services
 builder.Services.AddScoped<ILeaderboardService, LeaderboardService>();
-builder.Services.AddScoped<ILeaderboardEventPublisher, NoOpLeaderboardEventPublisher>();
+builder.Services.AddScoped<ILeaderboardEventPublisher, LeaderboardEventPublisher>();
 builder.Services.AddScoped<RankingEngine>();
 builder.Services.AddScoped<LeaderboardAggregator>();
 builder.Services.Configure<LeaderboardRefreshOptions>(

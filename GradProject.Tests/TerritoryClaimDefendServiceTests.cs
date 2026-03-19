@@ -1,7 +1,9 @@
 using GradProject.Application.DTOs.Gamification;
+using GradProject.Application.Interfaces;
 using GradProject.Application.Interfaces.Gamification;
 using GradProject.Application.Models;
 using GradProject.Domain.Entities;
+using GradProject.Domain.Enums;
 using GradProject.Infrastructure.Persistence;
 using GradProject.Infrastructure.Services.Gamification;
 using Microsoft.EntityFrameworkCore;
@@ -25,7 +27,8 @@ public class TerritoryClaimDefendServiceTests
 
     private static TerritoryClaimDefendService CreateService(
         AppDbContext db,
-        ITerritoryScoreEngine engine)
+        ITerritoryScoreEngine engine,
+        IAchievementEventPublisher? publisher = null)
     {
         var badgeService = new BadgeService(db, NullLogger<BadgeService>.Instance);
         var badgeEvalService = new BadgeEvaluationService(db, badgeService, NullLogger<BadgeEvaluationService>.Instance);
@@ -34,6 +37,21 @@ public class TerritoryClaimDefendServiceTests
             engine,
             badgeEvalService,
             NullLogger<TerritoryClaimDefendService>.Instance);
+    }
+
+    private sealed class NoOpAchievementEventPublisher : IAchievementEventPublisher
+    {
+        public Task PublishAsync(AchievementEventDto evt, CancellationToken ct = default) => Task.CompletedTask;
+    }
+
+    private sealed class SpyAchievementEventPublisher : IAchievementEventPublisher
+    {
+        public List<AchievementEventDto> Published { get; } = new();
+        public Task PublishAsync(AchievementEventDto evt, CancellationToken ct = default)
+        {
+            Published.Add(evt);
+            return Task.CompletedTask;
+        }
     }
 
     [Fact]
@@ -401,5 +419,125 @@ public class TerritoryClaimDefendServiceTests
 
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
             service.ClaimAsync(1, 70, new[] { 7 }));
+    }
+
+    // -------------------------------------------------------------------------
+    // BE-5 — territory achievement events
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task Claim_EmitsTerritoryClaimed_AchievementEvent()
+    {
+        var db = CreateDb(nameof(Claim_EmitsTerritoryClaimed_AchievementEvent));
+        db.Users.Add(new User { Id = 1, Email = "u@x.com", PasswordHash = Array.Empty<byte>(), PasswordSalt = Array.Empty<byte>() });
+        db.RunningActivities.Add(new RunningActivity
+        {
+            Id = 80, UserId = 1, ExternalActivityId = "ext80", Name = "R", Type = "Run",
+            StartTime = DateTime.UtcNow, RunDate = DateOnly.FromDateTime(DateTime.UtcNow),
+            DistanceMeters = 5000, MovingTimeSeconds = 1200, ElapsedTimeSeconds = 1200,
+            TotalElevationGain = 0, AverageSpeed = 4, Source = "STRAVA",
+            CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
+        });
+        db.Territories.Add(new Territory { Id = 80, Name = "T80", IsActive = true, Version = 0 });
+        await db.SaveChangesAsync();
+
+        var spy = new SpyAchievementEventPublisher();
+        var engine = new StubTerritoryScoreEngine(new[]
+        {
+            new TerritoryContribution { TerritoryId = 80, FinalScore = 0.5, CoverageRatio = 0.5, DistanceInTerritory = 2500 }
+        });
+        var service = CreateService(db, engine, spy);
+
+        await service.ClaimAsync(1, 80, new[] { 80 });
+
+        var claimEvents = spy.Published
+            .Where(e => e.Type == AchievementEventType.TerritoryClaimed)
+            .ToList();
+        Assert.Single(claimEvents);
+        Assert.Equal(1, claimEvents[0].UserId);
+        Assert.Equal(80, claimEvents[0].TerritoryId);
+        Assert.Equal(AchievementDeduplicationKeys.TerritoryClaimed(1, 80, 80), claimEvents[0].DeduplicationKey);
+    }
+
+    [Fact]
+    public async Task Claim_Transfer_EmitsTerritoryClaimedForNewOwnerAndTerritoryLostForPreviousOwner()
+    {
+        var db = CreateDb(nameof(Claim_Transfer_EmitsTerritoryClaimedForNewOwnerAndTerritoryLostForPreviousOwner));
+        db.Users.Add(new User { Id = 1, Email = "u1@x.com", PasswordHash = Array.Empty<byte>(), PasswordSalt = Array.Empty<byte>() });
+        db.Users.Add(new User { Id = 2, Email = "u2@x.com", PasswordHash = Array.Empty<byte>(), PasswordSalt = Array.Empty<byte>() });
+        db.RunningActivities.Add(new RunningActivity
+        {
+            Id = 90, UserId = 1, ExternalActivityId = "ext90", Name = "R", Type = "Run",
+            StartTime = DateTime.UtcNow, RunDate = DateOnly.FromDateTime(DateTime.UtcNow),
+            DistanceMeters = 5000, MovingTimeSeconds = 1200, ElapsedTimeSeconds = 1200,
+            TotalElevationGain = 0, AverageSpeed = 4, Source = "STRAVA",
+            CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
+        });
+        // Territory already owned by user 2 with a lower score.
+        db.Territories.Add(new Territory
+        {
+            Id = 90, Name = "T90", IsActive = true,
+            CurrentOwnerUserId = 2, CurrentOwnerScoreSnapshot = 0.3m, Version = 0
+        });
+        await db.SaveChangesAsync();
+
+        var spy = new SpyAchievementEventPublisher();
+        // User 1 submits a higher score and takes the territory.
+        var engine = new StubTerritoryScoreEngine(new[]
+        {
+            new TerritoryContribution { TerritoryId = 90, FinalScore = 0.8, CoverageRatio = 0.8, DistanceInTerritory = 4000 }
+        });
+        var service = CreateService(db, engine, spy);
+
+        await service.ClaimAsync(1, 90, new[] { 90 });
+
+        // New owner gets TerritoryClaimed.
+        var claimedForUser1 = spy.Published
+            .Where(e => e.Type == AchievementEventType.TerritoryClaimed && e.UserId == 1)
+            .ToList();
+        Assert.Single(claimedForUser1);
+
+        // Previous owner gets TerritoryLost.
+        var lostForUser2 = spy.Published
+            .Where(e => e.Type == AchievementEventType.TerritoryLost && e.UserId == 2)
+            .ToList();
+        Assert.Single(lostForUser2);
+        Assert.Equal(AchievementDeduplicationKeys.TerritoryLost(2, 90, 90), lostForUser2[0].DeduplicationKey);
+    }
+
+    [Fact]
+    public async Task Defend_EmitsTerritoryDefended_AchievementEvent()
+    {
+        var db = CreateDb(nameof(Defend_EmitsTerritoryDefended_AchievementEvent));
+        db.Users.Add(new User { Id = 1, Email = "u@x.com", PasswordHash = Array.Empty<byte>(), PasswordSalt = Array.Empty<byte>() });
+        db.RunningActivities.Add(new RunningActivity
+        {
+            Id = 100, UserId = 1, ExternalActivityId = "ext100", Name = "R", Type = "Run",
+            StartTime = DateTime.UtcNow, RunDate = DateOnly.FromDateTime(DateTime.UtcNow),
+            DistanceMeters = 5000, MovingTimeSeconds = 1200, ElapsedTimeSeconds = 1200,
+            TotalElevationGain = 0, AverageSpeed = 4, Source = "STRAVA",
+            CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
+        });
+        db.Territories.Add(new Territory
+        {
+            Id = 100, Name = "T100", IsActive = true,
+            CurrentOwnerUserId = 1, CurrentOwnerScoreSnapshot = 0.3m, Version = 0
+        });
+        await db.SaveChangesAsync();
+
+        var spy = new SpyAchievementEventPublisher();
+        var engine = new StubTerritoryScoreEngine(new[]
+        {
+            new TerritoryContribution { TerritoryId = 100, FinalScore = 0.6, CoverageRatio = 0.6, DistanceInTerritory = 3000 }
+        });
+        var service = CreateService(db, engine, spy);
+
+        await service.DefendAsync(1, 100, new[] { 100 });
+
+        var defendEvents = spy.Published
+            .Where(e => e.Type == AchievementEventType.TerritoryDefended && e.UserId == 1)
+            .ToList();
+        Assert.Single(defendEvents);
+        Assert.Equal(AchievementDeduplicationKeys.TerritoryDefended(1, 100, 100), defendEvents[0].DeduplicationKey);
     }
 }
