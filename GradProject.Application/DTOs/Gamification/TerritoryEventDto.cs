@@ -5,7 +5,16 @@ namespace GradProject.Application.DTOs.Gamification;
 /// </summary>
 public class TerritoryEventDto
 {
-    public string EventType { get; set; } = null!; // TERRITORY_CLAIMED | TERRITORY_DEFENDED | TERRITORY_LOST | TERRITORY_TRANSFERRED
+    /// <summary>Known values defined in <see cref="EventTypes"/>.</summary>
+    public string EventType { get; set; } = null!;
+
+    public static class EventTypes
+    {
+        public const string Claimed     = "TERRITORY_CLAIMED";
+        public const string Transferred = "TERRITORY_TRANSFERRED";
+        public const string Defended    = "TERRITORY_DEFENDED";
+        public const string Lost        = "TERRITORY_LOST";
+    }
     public int UserId { get; set; }
     public int TerritoryId { get; set; }
     public int RunId { get; set; }

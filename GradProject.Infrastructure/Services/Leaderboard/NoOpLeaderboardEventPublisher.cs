@@ -7,6 +7,6 @@ namespace GradProject.Infrastructure.Services.Leaderboard;
 /// </summary>
 public class NoOpLeaderboardEventPublisher : ILeaderboardEventPublisher
 {
-    public Task PublishRankChangedAsync(int challengeId, int userId, int oldRank, int newRank, CancellationToken ct = default)
+    public Task PublishRankChangedAsync(int? challengeId, int userId, int oldRank, int newRank, CancellationToken ct = default)
         => Task.CompletedTask;
 }

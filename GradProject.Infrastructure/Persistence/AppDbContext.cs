@@ -27,6 +27,7 @@ namespace GradProject.Infrastructure.Persistence
         public DbSet<UserTerritory> UserTerritories => Set<UserTerritory>();
         public DbSet<TerritoryUnlockCondition> TerritoryUnlockConditions => Set<TerritoryUnlockCondition>();
         public DbSet<TerritoryOwnershipHistory> TerritoryOwnershipHistories => Set<TerritoryOwnershipHistory>();
+        public DbSet<AchievementEvent> AchievementEvents => Set<AchievementEvent>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -621,6 +622,45 @@ namespace GradProject.Infrastructure.Persistence
                  .OnDelete(DeleteBehavior.Cascade);
                 e.HasIndex(uc => uc.TerritoryId).HasDatabaseName("IX_TerritoryUnlockConditions_TerritoryId");
                 e.ToTable("TerritoryUnlockConditions");
+            });
+
+            // ACHIEVEMENT EVENTS (BE-5 — domain/audit feed for all achievement milestones)
+            modelBuilder.Entity<AchievementEvent>(e =>
+            {
+                e.HasKey(ae => ae.Id);
+
+                e.Property(ae => ae.Type)
+                 .HasConversion<int>()
+                 .IsRequired();
+
+                e.Property(ae => ae.OccurredAt)
+                 .IsRequired();
+
+                e.Property(ae => ae.DeduplicationKey)
+                 .IsRequired()
+                 .HasMaxLength(500);
+
+                e.Property(ae => ae.Metadata)
+                 .HasColumnType("jsonb");
+
+                // Unique constraint is the idempotency gate — duplicate domain events are silently dropped.
+                e.HasIndex(ae => ae.DeduplicationKey)
+                 .IsUnique()
+                 .HasDatabaseName("UX_AchievementEvents_DeduplicationKey");
+
+                e.HasIndex(ae => new { ae.UserId, ae.OccurredAt })
+                 .HasDatabaseName("IX_AchievementEvents_UserId_OccurredAt");
+
+                e.HasIndex(ae => ae.Type)
+                 .HasDatabaseName("IX_AchievementEvents_Type");
+
+                e.HasOne(ae => ae.User)
+                 .WithMany()
+                 .HasForeignKey(ae => ae.UserId)
+                 .IsRequired()
+                 .OnDelete(DeleteBehavior.Cascade);
+
+                e.ToTable("AchievementEvents");
             });
 
             // TERRITORY OWNERSHIP HISTORY (HLN-8 audit log)
