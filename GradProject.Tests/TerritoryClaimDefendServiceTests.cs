@@ -30,12 +30,15 @@ public class TerritoryClaimDefendServiceTests
         ITerritoryScoreEngine engine,
         IAchievementEventPublisher? publisher = null)
     {
+        publisher ??= new NoOpAchievementEventPublisher();
         var badgeService = new BadgeService(db, NullLogger<BadgeService>.Instance);
-        var badgeEvalService = new BadgeEvaluationService(db, badgeService, NullLogger<BadgeEvaluationService>.Instance);
+        var badgeEvalService = new BadgeEvaluationService(
+            db, badgeService, publisher, NullLogger<BadgeEvaluationService>.Instance);
         return new TerritoryClaimDefendService(
             db,
             engine,
             badgeEvalService,
+            publisher,
             NullLogger<TerritoryClaimDefendService>.Instance);
     }
 

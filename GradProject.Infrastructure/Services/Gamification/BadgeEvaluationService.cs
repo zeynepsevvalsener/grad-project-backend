@@ -1,5 +1,6 @@
 using System.Globalization;
 using GradProject.Application.DTOs.Gamification;
+using GradProject.Application.Interfaces;
 using GradProject.Application.Interfaces.Gamification;
 using GradProject.Domain.Enums;
 using GradProject.Infrastructure.Persistence;
@@ -40,8 +41,10 @@ namespace GradProject.Infrastructure.Services.Gamification
     /// All badges are looked up by BadgeType from the Badges table — no IDs are hardcoded.
     /// If no active badge row exists for a given type, that rule is silently skipped.
     ///
-    /// TODO (BE-5): After awarding, publish a badge-earned event via IBadgeEventPublisher
-    /// (not yet implemented). See existing NoOpLeaderboardEventPublisher pattern.
+    /// Event emission (BE-5):
+    ///   - Every new badge award emits a BadgeEarned achievement event.
+    ///   - PersonalBest badge additionally emits a PersonalBest event carrying the run ID.
+    ///   Both events use a stable DeduplicationKey, so re-evaluation never produces duplicates.
     /// </summary>
     public class BadgeEvaluationService : IBadgeEvaluationService
     {
@@ -53,15 +56,18 @@ namespace GradProject.Infrastructure.Services.Gamification
 
         private readonly AppDbContext _db;
         private readonly IBadgeService _badgeService;
+        private readonly IAchievementEventPublisher _achievementPublisher;
         private readonly ILogger<BadgeEvaluationService> _logger;
 
         public BadgeEvaluationService(
             AppDbContext db,
             IBadgeService badgeService,
+            IAchievementEventPublisher achievementPublisher,
             ILogger<BadgeEvaluationService> logger)
         {
             _db = db;
             _badgeService = badgeService;
+            _achievementPublisher = achievementPublisher;
             _logger = logger;
         }
 
@@ -80,7 +86,9 @@ namespace GradProject.Infrastructure.Services.Gamification
             int alreadyOwned = 0;
             int notEarned = 0;
 
-            async Task TryAward(BadgeType type, bool conditionMet)
+            // tryAward awards the badge and emits a BadgeEarned event on first award.
+            // contextRunId: populated only for PersonalBest, used to also emit a PersonalBest event.
+            async Task TryAward(BadgeType type, bool conditionMet, int? contextRunId = null)
             {
                 if (!conditionMet)
                 {
@@ -110,10 +118,22 @@ namespace GradProject.Infrastructure.Services.Gamification
                         _logger.LogInformation(
                             "Badge awarded: type={BadgeType} badgeId={BadgeId} userId={UserId}",
                             type, badge.Id, userId);
+
+                        // Emit BadgeEarned event — one per unique (userId, badgeId).
+                        await EmitBadgeEarnedAsync(userId, badge.Id, contextRunId, ct);
+
+                        // PersonalBest badge additionally emits a PersonalBest event
+                        // carrying the run ID so AI-4 and BE-6 can reference the specific run.
+                        if (type == BadgeType.PersonalBest && contextRunId.HasValue)
+                        {
+                            await EmitPersonalBestAsync(userId, contextRunId.Value, ct);
+                        }
                         break;
+
                     case AwardBadgeResult.AlreadyExists:
                         alreadyOwned++;
                         break;
+
                     default:
                         _logger.LogWarning(
                             "AwardBadgeAsync returned {Result} for type={BadgeType} userId={UserId}",
@@ -146,7 +166,7 @@ namespace GradProject.Infrastructure.Services.Gamification
 
         private async Task EvaluateRunBadgesAsync(
             int userId,
-            Func<BadgeType, bool, Task> tryAward,
+            Func<BadgeType, bool, int?, Task> tryAward,
             CancellationToken ct)
         {
             var runs = await _db.RunningActivities
@@ -154,6 +174,7 @@ namespace GradProject.Infrastructure.Services.Gamification
                 .Where(r => r.UserId == userId)
                 .Select(r => new
                 {
+                    r.Id,
                     r.RunDate,
                     r.DistanceMeters,
                     r.MovingTimeSeconds,
@@ -162,27 +183,30 @@ namespace GradProject.Infrastructure.Services.Gamification
                 .ToListAsync(ct);
 
             // First Run
-            await tryAward(BadgeType.FirstRun, runs.Count > 0);
+            await tryAward(BadgeType.FirstRun, runs.Count > 0, null);
 
             // Weekly Streak
-            await tryAward(BadgeType.Streak, HasWeeklyStreak(runs.Select(r => r.RunDate)));
+            await tryAward(BadgeType.Streak, HasWeeklyStreak(runs.Select(r => r.RunDate)), null);
 
-            // Personal Best
+            // Personal Best — also captures the run ID so we can emit the PersonalBest event.
             var qualifyingRuns = runs
                 .Where(r => r.DistanceMeters > MinPbDistanceMeters && r.MovingTimeSeconds > 0)
                 .ToList();
 
             bool hasPersonalBest = false;
+            int? latestQualifyingRunId = null;
+
             if (qualifyingRuns.Count > 0)
             {
                 double minPace = qualifyingRuns.Min(r => r.MovingTimeSeconds / r.DistanceMeters);
                 var latestRun = qualifyingRuns.OrderByDescending(r => r.CreatedAt).First();
                 double latestPace = latestRun.MovingTimeSeconds / latestRun.DistanceMeters;
-                // Award when latest run matches or beats the all-time best pace.
                 hasPersonalBest = latestPace <= minPace;
+                latestQualifyingRunId = latestRun.Id;
             }
 
-            await tryAward(BadgeType.PersonalBest, hasPersonalBest);
+            // Pass the run ID so TryAward can emit the PersonalBest event when the badge is new.
+            await tryAward(BadgeType.PersonalBest, hasPersonalBest, latestQualifyingRunId);
         }
 
         /// <summary>
@@ -260,7 +284,7 @@ namespace GradProject.Infrastructure.Services.Gamification
 
         private async Task EvaluateTerritoryBadgesAsync(
             int userId,
-            Func<BadgeType, bool, Task> tryAward,
+            Func<BadgeType, bool, int?, Task> tryAward,
             CancellationToken ct)
         {
             var historyTypes = await _db.TerritoryOwnershipHistories
@@ -272,9 +296,9 @@ namespace GradProject.Infrastructure.Services.Gamification
 
             var actionSet = new HashSet<OwnershipActionType>(historyTypes);
 
-            await tryAward(BadgeType.TerritoryFirstClaim, actionSet.Contains(OwnershipActionType.Claim));
-            await tryAward(BadgeType.TerritoryDefender, actionSet.Contains(OwnershipActionType.Defend));
-            await tryAward(BadgeType.TerritoryConqueror, actionSet.Contains(OwnershipActionType.Transfer));
+            await tryAward(BadgeType.TerritoryFirstClaim, actionSet.Contains(OwnershipActionType.Claim), null);
+            await tryAward(BadgeType.TerritoryDefender, actionSet.Contains(OwnershipActionType.Defend), null);
+            await tryAward(BadgeType.TerritoryConqueror, actionSet.Contains(OwnershipActionType.Transfer), null);
         }
 
         // -------------------------------------------------------------------------
@@ -283,14 +307,61 @@ namespace GradProject.Infrastructure.Services.Gamification
 
         private async Task EvaluateChallengeBadgesAsync(
             int userId,
-            Func<BadgeType, bool, Task> tryAward,
+            Func<BadgeType, bool, int?, Task> tryAward,
             CancellationToken ct)
         {
             var hasCompletedChallenge = await _db.UserChallenges
                 .AsNoTracking()
                 .AnyAsync(uc => uc.UserId == userId && uc.Completed, ct);
 
-            await tryAward(BadgeType.ChallengeCompletion, hasCompletedChallenge);
+            await tryAward(BadgeType.ChallengeCompletion, hasCompletedChallenge, null);
+        }
+
+        // -------------------------------------------------------------------------
+        // Event emission helpers
+        // -------------------------------------------------------------------------
+
+        private async Task EmitBadgeEarnedAsync(int userId, int badgeId, int? runId, CancellationToken ct)
+        {
+            try
+            {
+                await _achievementPublisher.PublishAsync(new AchievementEventDto
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = userId,
+                    Type = AchievementEventType.BadgeEarned,
+                    OccurredAt = DateTime.UtcNow,
+                    BadgeId = badgeId,
+                    RunId = runId,
+                    DeduplicationKey = AchievementDeduplicationKeys.BadgeEarned(userId, badgeId)
+                }, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Failed to emit BadgeEarned event for userId={UserId} badgeId={BadgeId}", userId, badgeId);
+            }
+        }
+
+        private async Task EmitPersonalBestAsync(int userId, int runId, CancellationToken ct)
+        {
+            try
+            {
+                await _achievementPublisher.PublishAsync(new AchievementEventDto
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = userId,
+                    Type = AchievementEventType.PersonalBest,
+                    OccurredAt = DateTime.UtcNow,
+                    RunId = runId,
+                    DeduplicationKey = AchievementDeduplicationKeys.PersonalBest(userId, runId)
+                }, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Failed to emit PersonalBest event for userId={UserId} runId={RunId}", userId, runId);
+            }
         }
     }
 }
