@@ -15,7 +15,6 @@ public class TerritoryClaimDefendService : ITerritoryClaimDefendService
     private readonly AppDbContext _db;
     private readonly ITerritoryScoreEngine _scoreEngine;
     private readonly IBadgeEvaluationService _badgeEvaluationService;
-    private readonly IAchievementEventPublisher _achievementPublisher;
     private readonly ILogger<TerritoryClaimDefendService> _logger;
     private const int MaxConcurrencyRetries = 2;
 
@@ -23,13 +22,11 @@ public class TerritoryClaimDefendService : ITerritoryClaimDefendService
         AppDbContext db,
         ITerritoryScoreEngine scoreEngine,
         IBadgeEvaluationService badgeEvaluationService,
-        IAchievementEventPublisher achievementPublisher,
         ILogger<TerritoryClaimDefendService> logger)
     {
         _db = db;
         _scoreEngine = scoreEngine;
         _badgeEvaluationService = badgeEvaluationService;
-        _achievementPublisher = achievementPublisher;
         _logger = logger;
     }
 
@@ -135,10 +132,6 @@ public class TerritoryClaimDefendService : ITerritoryClaimDefendService
                 _logger.LogWarning(ex, "Failed to evaluate badge conditions for user {UserId} after territory claim", userId);
             }
         }
-
-        // Publish achievement events for all territory outcomes (claim, transfer, loss).
-        // eventsToEmit may contain events for multiple users (e.g. TERRITORY_LOST for previous owner).
-        await PublishTerritoryEventsAsync(eventsToEmit, ct);
 
         return new ClaimTerritoryResponseDto
         {
@@ -285,8 +278,6 @@ public class TerritoryClaimDefendService : ITerritoryClaimDefendService
                 _logger.LogWarning(ex, "Failed to evaluate badge conditions for user {UserId} after territory defend", userId);
             }
         }
-
-        await PublishTerritoryEventsAsync(eventsToEmit, ct);
 
         return new DefendTerritoryResponseDto
         {

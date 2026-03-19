@@ -1,5 +1,4 @@
 using GradProject.Application.DTOs.Gamification;
-using GradProject.Application.Interfaces;
 using GradProject.Domain.Entities;
 using GradProject.Domain.Enums;
 using GradProject.Infrastructure.Persistence;
@@ -32,30 +31,10 @@ public class BadgeEvaluationServiceTests
         return db;
     }
 
-    private static BadgeEvaluationService CreateService(
-        AppDbContext db,
-        IAchievementEventPublisher? publisher = null)
+    private static BadgeEvaluationService CreateService(AppDbContext db)
     {
         var badgeService = new BadgeService(db, NullLogger<BadgeService>.Instance);
-        return new BadgeEvaluationService(
-            db,
-            badgeService,
-            publisher ?? new SpyAchievementEventPublisher(),
-            NullLogger<BadgeEvaluationService>.Instance);
-    }
-
-    /// <summary>
-    /// Records published events so tests can assert on event emission without a real DB.
-    /// </summary>
-    private sealed class SpyAchievementEventPublisher : IAchievementEventPublisher
-    {
-        public List<AchievementEventDto> Published { get; } = new();
-
-        public Task PublishAsync(AchievementEventDto evt, CancellationToken ct = default)
-        {
-            Published.Add(evt);
-            return Task.CompletedTask;
-        }
+        return new BadgeEvaluationService(db, badgeService, NullLogger<BadgeEvaluationService>.Instance);
     }
 
     private static User SeedUser(AppDbContext db, int id)
@@ -586,109 +565,5 @@ public class BadgeEvaluationServiceTests
         var result = await CreateService(db).EvaluateBadgeConditionsAsync(1);
 
         Assert.DoesNotContain(6, result.AwardedBadgeIds);
-    }
-
-    // -------------------------------------------------------------------------
-    // BE-5 event emission — BadgeEarned
-    // -------------------------------------------------------------------------
-
-    [Fact]
-    public async Task EvaluateBadgeConditions_FirstRun_EmitsBadgeEarnedEventOnce()
-    {
-        var db = CreateDb(nameof(EvaluateBadgeConditions_FirstRun_EmitsBadgeEarnedEventOnce));
-        SeedUser(db, 1);
-        var badge = SeedBadge(db, 1, BadgeType.FirstRun);
-        SeedRun(db, 1, userId: 1, runDate: new DateOnly(2025, 3, 1));
-        await db.SaveChangesAsync();
-
-        var spy = new SpyAchievementEventPublisher();
-        await CreateService(db, spy).EvaluateBadgeConditionsAsync(1);
-
-        var badgeEvents = spy.Published
-            .Where(e => e.Type == AchievementEventType.BadgeEarned && e.BadgeId == badge.Id)
-            .ToList();
-        Assert.Single(badgeEvents);
-        Assert.Equal(1, badgeEvents[0].UserId);
-        Assert.Equal(AchievementDeduplicationKeys.BadgeEarned(1, badge.Id), badgeEvents[0].DeduplicationKey);
-    }
-
-    [Fact]
-    public async Task EvaluateBadgeConditions_FirstRun_NoBadgeEarnedEventWhenAlreadyOwned()
-    {
-        var db = CreateDb(nameof(EvaluateBadgeConditions_FirstRun_NoBadgeEarnedEventWhenAlreadyOwned));
-        SeedUser(db, 1);
-        var badge = SeedBadge(db, 1, BadgeType.FirstRun);
-        SeedRun(db, 1, userId: 1, runDate: new DateOnly(2025, 3, 1));
-        SeedUserBadge(db, userId: 1, badgeId: badge.Id);
-        await db.SaveChangesAsync();
-
-        var spy = new SpyAchievementEventPublisher();
-        await CreateService(db, spy).EvaluateBadgeConditionsAsync(1);
-
-        Assert.DoesNotContain(spy.Published, e => e.Type == AchievementEventType.BadgeEarned);
-    }
-
-    // -------------------------------------------------------------------------
-    // BE-5 event emission — PersonalBest
-    // -------------------------------------------------------------------------
-
-    [Fact]
-    public async Task EvaluateBadgeConditions_PersonalBest_EmitsBothBadgeEarnedAndPersonalBestEvents()
-    {
-        var db = CreateDb(nameof(EvaluateBadgeConditions_PersonalBest_EmitsBothBadgeEarnedAndPersonalBestEvents));
-        SeedUser(db, 1);
-        var badge = SeedBadge(db, 3, BadgeType.PersonalBest);
-        var now = DateTime.UtcNow;
-        SeedRun(db, 42, userId: 1, runDate: new DateOnly(2025, 3, 1),
-            distanceMeters: 5000, movingTimeSeconds: 1200, createdAt: now);
-        await db.SaveChangesAsync();
-
-        var spy = new SpyAchievementEventPublisher();
-        await CreateService(db, spy).EvaluateBadgeConditionsAsync(1);
-
-        var badgeEvent = spy.Published.Single(e => e.Type == AchievementEventType.BadgeEarned);
-        Assert.Equal(badge.Id, badgeEvent.BadgeId);
-        Assert.Equal(42, badgeEvent.RunId);
-
-        var pbEvent = spy.Published.Single(e => e.Type == AchievementEventType.PersonalBest);
-        Assert.Equal(42, pbEvent.RunId);
-        Assert.Equal(AchievementDeduplicationKeys.PersonalBest(1, 42), pbEvent.DeduplicationKey);
-    }
-
-    [Fact]
-    public async Task EvaluateBadgeConditions_PersonalBest_NoEventsEmittedWhenBadgeAlreadyOwned()
-    {
-        var db = CreateDb(nameof(EvaluateBadgeConditions_PersonalBest_NoEventsEmittedWhenBadgeAlreadyOwned));
-        SeedUser(db, 1);
-        var badge = SeedBadge(db, 3, BadgeType.PersonalBest);
-        var now = DateTime.UtcNow;
-        SeedRun(db, 42, userId: 1, runDate: new DateOnly(2025, 3, 1),
-            distanceMeters: 5000, movingTimeSeconds: 1200, createdAt: now);
-        SeedUserBadge(db, userId: 1, badgeId: badge.Id);
-        await db.SaveChangesAsync();
-
-        var spy = new SpyAchievementEventPublisher();
-        await CreateService(db, spy).EvaluateBadgeConditionsAsync(1);
-
-        Assert.DoesNotContain(spy.Published, e =>
-            e.Type == AchievementEventType.PersonalBest || e.Type == AchievementEventType.BadgeEarned);
-    }
-
-    [Fact]
-    public async Task EvaluateBadgeConditions_CalledTwice_EmitsBadgeEarnedOnlyOnce()
-    {
-        var db = CreateDb(nameof(EvaluateBadgeConditions_CalledTwice_EmitsBadgeEarnedOnlyOnce));
-        SeedUser(db, 1);
-        SeedBadge(db, 1, BadgeType.FirstRun);
-        SeedRun(db, 1, userId: 1, runDate: new DateOnly(2025, 3, 1));
-        await db.SaveChangesAsync();
-
-        var spy = new SpyAchievementEventPublisher();
-        var service = CreateService(db, spy);
-        await service.EvaluateBadgeConditionsAsync(1);
-        await service.EvaluateBadgeConditionsAsync(1);
-
-        // Badge already owned on second call → no second event.
-        Assert.Single(spy.Published, e => e.Type == AchievementEventType.BadgeEarned);
     }
 }
