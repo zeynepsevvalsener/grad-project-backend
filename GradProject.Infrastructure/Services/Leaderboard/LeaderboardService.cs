@@ -13,6 +13,13 @@ namespace GradProject.Infrastructure.Services.Leaderboard;
 /// <summary>
 /// Service for calculating and retrieving challenge and global leaderboards.
 /// Orchestrates validation, aggregation, ranking, and pagination.
+///
+/// Leaderboard climb detection (BE-5):
+///   PersistSnapshotAsync compares new ranks against the most recent PREVIOUS day's snapshot.
+///   This means one LeaderboardClimbed event can be emitted per user per scope per day,
+///   matching the once-per-day cadence of LeaderboardDailyRefreshJob.
+///   If no previous snapshot exists (first-ever refresh), no events are emitted.
+///   Manual same-day refreshes use today's snapshot as baseline to avoid repeat events.
 /// </summary>
 public class LeaderboardService : ILeaderboardService
 {
@@ -21,17 +28,20 @@ public class LeaderboardService : ILeaderboardService
     private readonly RankingEngine _rankingEngine;
     private readonly LeaderboardAggregator _aggregator;
     private readonly LeaderboardQueryValidator _validator;
+    private readonly ILeaderboardEventPublisher _eventPublisher;
 
     public LeaderboardService(
         AppDbContext db,
         ILogger<LeaderboardService> logger,
         RankingEngine rankingEngine,
-        LeaderboardAggregator aggregator)
+        LeaderboardAggregator aggregator,
+        ILeaderboardEventPublisher eventPublisher)
     {
         _db = db;
         _logger = logger;
         _rankingEngine = rankingEngine;
         _aggregator = aggregator;
+        _eventPublisher = eventPublisher;
         _validator = new LeaderboardQueryValidator();
     }
 
@@ -323,8 +333,8 @@ public class LeaderboardService : ILeaderboardService
     /// <inheritdoc />
     public async Task RefreshGlobalLeaderboardAsync(CancellationToken ct = default)
     {
-        var data = await _aggregator.GetGlobalAggregatedDataAsync(ct);
-        var ranked = _rankingEngine.CalculateRanks(data, ChallengeMetric.Distance);
+        var data = await _aggregator.GetGlobalAggregatedDataAsync(ct: ct);
+        var ranked = _rankingEngine.CalculateRanks(data);
 
         await PersistSnapshotAsync(ranked, challengeId: null, ct);
     }
@@ -332,6 +342,11 @@ public class LeaderboardService : ILeaderboardService
     /// <summary>
     /// Replaces today's snapshot for the given scope (null = global, non-null = challenge).
     /// Idempotent: any prior snapshot for (challengeId, today) is deleted before inserting the new one.
+    ///
+    /// Rank-climb detection:
+    ///   Compares new ranks against the baseline (today's existing snapshot if present, otherwise
+    ///   yesterday's). Users whose rank number decreased (moved up the board) emit a
+    ///   LeaderboardClimbed achievement event. Publishing errors never block snapshot persistence.
     /// </summary>
     private async Task PersistSnapshotAsync(
         IEnumerable<LeaderboardEntryDto> ranked,
@@ -340,20 +355,20 @@ public class LeaderboardService : ILeaderboardService
     {
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
+        var baselineRanks = await LoadBaselineRanksAsync(challengeId, today, ct);
+
         if (challengeId.HasValue)
-        {
             await _db.LeaderboardSnapshots
                 .Where(s => s.ChallengeId == challengeId.Value && s.SnapshotDate == today)
                 .ExecuteDeleteAsync(ct);
-        }
         else
-        {
             await _db.LeaderboardSnapshots
                 .Where(s => s.ChallengeId == null && s.SnapshotDate == today)
                 .ExecuteDeleteAsync(ct);
-        }
 
-        var snapshots = ranked.Select(e => new LeaderboardSnapshot
+        var rankedList = ranked.ToList();
+
+        var snapshots = rankedList.Select(e => new LeaderboardSnapshot
         {
             ChallengeId = challengeId,
             SnapshotDate = today,
@@ -367,6 +382,66 @@ public class LeaderboardService : ILeaderboardService
         });
         await _db.LeaderboardSnapshots.AddRangeAsync(snapshots, ct);
         await _db.SaveChangesAsync(ct);
+
+        await PublishClimbEventsAsync(rankedList, baselineRanks, challengeId, ct);
+    }
+
+    /// <summary>
+    /// Loads the most recent rank per user for the given scope from today's or yesterday's snapshot.
+    /// Returns an empty dictionary if no prior snapshot exists (first-ever refresh).
+    /// </summary>
+    private async Task<Dictionary<int, int>> LoadBaselineRanksAsync(
+        int? challengeId,
+        DateOnly today,
+        CancellationToken ct)
+    {
+        var yesterday = today.AddDays(-1);
+
+        var rows = challengeId.HasValue
+            ? await _db.LeaderboardSnapshots
+                .Where(s => s.ChallengeId == challengeId.Value &&
+                            (s.SnapshotDate == today || s.SnapshotDate == yesterday))
+                .Select(s => new { s.UserId, s.Rank, s.SnapshotDate })
+                .ToListAsync(ct)
+            : await _db.LeaderboardSnapshots
+                .Where(s => s.ChallengeId == null &&
+                            (s.SnapshotDate == today || s.SnapshotDate == yesterday))
+                .Select(s => new { s.UserId, s.Rank, s.SnapshotDate })
+                .ToListAsync(ct);
+
+        return rows
+            .GroupBy(s => s.UserId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderByDescending(s => s.SnapshotDate).First().Rank);
+    }
+
+    /// <summary>
+    /// Emits a LeaderboardClimbed event for each user whose new rank is strictly better than
+    /// their baseline. Errors are caught per-user so one failure does not block the rest.
+    /// </summary>
+    private async Task PublishClimbEventsAsync(
+        IReadOnlyList<LeaderboardEntryDto> rankedList,
+        Dictionary<int, int> baselineRanks,
+        int? challengeId,
+        CancellationToken ct)
+    {
+        foreach (var entry in rankedList)
+        {
+            if (!baselineRanks.TryGetValue(entry.UserId, out var oldRank) || entry.Rank >= oldRank)
+                continue;
+
+            try
+            {
+                await _eventPublisher.PublishRankChangedAsync(challengeId, entry.UserId, oldRank, entry.Rank, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Failed to publish LeaderboardClimbed event for userId={UserId} scope={Scope}",
+                    entry.UserId, challengeId?.ToString() ?? "global");
+            }
+        }
     }
 
     /// <summary>

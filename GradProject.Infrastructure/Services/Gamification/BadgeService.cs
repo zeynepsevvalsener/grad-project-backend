@@ -5,11 +5,13 @@ using GradProject.Domain.Enums;
 using GradProject.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 
 namespace GradProject.Infrastructure.Services.Gamification
 {
     public class BadgeService : IBadgeService
     {
+        private const string PostgresUniqueViolationCode = "23505";
         private readonly AppDbContext _db;
         private readonly ILogger<BadgeService> _logger;
 
@@ -171,7 +173,7 @@ namespace GradProject.Infrastructure.Services.Gamification
             var inner = ex.InnerException;
             while (inner != null)
             {
-                if (inner is Npgsql.PostgresException pg && pg.SqlState == "23505")
+                if (inner is PostgresException pg && pg.SqlState == PostgresUniqueViolationCode)
                     return true;
                 inner = inner.InnerException;
             }
@@ -204,6 +206,9 @@ namespace GradProject.Infrastructure.Services.Gamification
                 BadgeType.PersonalBest => "Personal Best",
                 BadgeType.Territory => "Territory",
                 BadgeType.ChallengeCompletion => "Challenge Completion",
+                BadgeType.TerritoryFirstClaim => "Territory: First Claim",
+                BadgeType.TerritoryDefender => "Territory: Defender",
+                BadgeType.TerritoryConqueror => "Territory: Conqueror",
                 _ => badge.Type.ToString()
             };
 
@@ -221,4 +226,5 @@ namespace GradProject.Infrastructure.Services.Gamification
         }
     }
 }
+
 

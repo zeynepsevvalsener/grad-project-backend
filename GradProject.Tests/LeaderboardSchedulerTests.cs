@@ -34,7 +34,7 @@ public class LeaderboardSchedulerTests
             new() { UserId = 3, Email = "c@x.com", TotalDistance = 6000, TotalMovingTime = 1800, JoinedAt = DateTime.UtcNow, ChallengeStartDate = DateTime.UtcNow.AddDays(-30) },
         };
         var engine = new RankingEngine();
-        var ranked = engine.CalculateRanks(data, metric: null);
+        var ranked = engine.CalculateRanks(data);
 
         Assert.Equal(3, ranked.Count);
         Assert.Equal(2, ranked[0].UserId);  // highest distance wins rank 1
@@ -54,7 +54,7 @@ public class LeaderboardSchedulerTests
             new() { UserId = 20, Email = "y@x.com", TotalDistance = 5000, TotalMovingTime = 1500, JoinedAt = DateTime.UtcNow, ChallengeStartDate = DateTime.UtcNow.AddDays(-30) },
         };
         var engine = new RankingEngine();
-        var ranked = engine.CalculateRanks(data, ChallengeMetric.Distance);
+        var ranked = engine.CalculateRanks(data);
 
         // UserId tie-breaker: lower UserId ranks second when all metrics equal
         Assert.Equal(10, ranked[0].UserId);
@@ -249,6 +249,9 @@ public class LeaderboardSchedulerTests
             RefreshedChallengeIds.Add(challengeId);
             return Task.CompletedTask;
         }
+
+        public Task<LeaderboardResponseDto> GetGlobalLeaderboardAsync(int page, int pageSize, int? userId, int? limit, string? period = null, CancellationToken ct = default)
+            => Task.FromResult(new LeaderboardResponseDto { Entries = new(), Pagination = new() });
 
         public Task<LeaderboardResponseDto> GetLeaderboardAsync(int challengeId, int page, int pageSize, int? userId, int? limit, string? period = null, CancellationToken ct = default)
             => Task.FromResult(new LeaderboardResponseDto { Entries = new(), Pagination = new() });

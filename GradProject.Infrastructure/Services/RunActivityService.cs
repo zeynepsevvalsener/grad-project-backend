@@ -22,6 +22,7 @@ namespace GradProject.Infrastructure.Services
         private readonly IBoundingBoxService _boundingBoxService;
         private readonly IConvexHullService _convexHullService;
         private readonly IChallengeProgressService _challengeProgressService;
+        private readonly IBadgeEvaluationService _badgeEvaluationService;
 
         // Add TerritoryAchievementService
         private readonly Gamification.TerritoryAchievementService _territoryAchievementService;
@@ -35,6 +36,7 @@ namespace GradProject.Infrastructure.Services
             IBoundingBoxService boundingBoxService,
             IConvexHullService convexHullService,
             IChallengeProgressService challengeProgressService,
+            IBadgeEvaluationService badgeEvaluationService,
             Gamification.TerritoryAchievementService territoryAchievementService)
         {
             _db = db;
@@ -45,6 +47,7 @@ namespace GradProject.Infrastructure.Services
             _boundingBoxService = boundingBoxService;
             _convexHullService = convexHullService;
             _challengeProgressService = challengeProgressService;
+            _badgeEvaluationService = badgeEvaluationService;
             _territoryAchievementService = territoryAchievementService;
         }
 
@@ -132,20 +135,24 @@ namespace GradProject.Infrastructure.Services
                 _db.RunningActivities.Add(runningActivity);
                 await _db.SaveChangesAsync(ct);
 
-                // Update challenge progress (non-blocking)
+                // Update challenge progress and evaluate badges (non-blocking)
                 try
                 {
                     await _challengeProgressService.UpdateAfterRunSaved(runningActivity.Id, ct);
-                    // Territory-based achievements (non-blocking, best effort)
-                    // TODO: Determine territoryId from run (requires territory logic)
-                    // Example: int? territoryId = GetTerritoryIdForRun(runningActivity);
-                    // if (territoryId.HasValue)
-                    //     await _territoryAchievementService.AwardTerritoryAchievementsAsync(userId, territoryId.Value, runningActivity.Id, ct);
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Failed to update challenge progress for run {RunId}", runningActivity.Id);
-                    // Continue - don't break run save flow
+                }
+
+                try
+                {
+                    await _badgeEvaluationService.EvaluateBadgeConditionsAsync(userId, ct);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to evaluate badge conditions for user {UserId} after run {RunId}", userId, runningActivity.Id);
+                    // Continue — badge evaluation must not break the run save flow.
                 }
 
                 return new FetchLatestRunResult
@@ -272,8 +279,17 @@ namespace GradProject.Infrastructure.Services
                     catch (Exception ex)
                     {
                         _logger.LogWarning(ex, "Failed to update challenge progress for run {RunId}", savedActivity.Id);
-                        // Continue - don't break run save flow
                     }
+                }
+
+                // Evaluate badges once after all activities for this user are saved (non-blocking)
+                try
+                {
+                    await _badgeEvaluationService.EvaluateBadgeConditionsAsync(userId, ct);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to evaluate badge conditions for user {UserId} after batch run sync", userId);
                 }
                 
                 // Update IDs in result for newly saved activities
