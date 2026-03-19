@@ -323,8 +323,8 @@ public class LeaderboardService : ILeaderboardService
     /// <inheritdoc />
     public async Task RefreshGlobalLeaderboardAsync(CancellationToken ct = default)
     {
-        var data = await _aggregator.GetGlobalAggregatedDataAsync(ct);
-        var ranked = _rankingEngine.CalculateRanks(data, ChallengeMetric.Distance);
+        var data = await _aggregator.GetGlobalAggregatedDataAsync(ct: ct);
+        var ranked = _rankingEngine.CalculateRanks(data);
 
         await PersistSnapshotAsync(ranked, challengeId: null, ct);
     }

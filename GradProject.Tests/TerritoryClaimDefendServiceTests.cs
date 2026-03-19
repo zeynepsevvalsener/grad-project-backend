@@ -27,9 +27,12 @@ public class TerritoryClaimDefendServiceTests
         AppDbContext db,
         ITerritoryScoreEngine engine)
     {
+        var badgeService = new BadgeService(db, NullLogger<BadgeService>.Instance);
+        var badgeEvalService = new BadgeEvaluationService(db, badgeService, NullLogger<BadgeEvaluationService>.Instance);
         return new TerritoryClaimDefendService(
             db,
             engine,
+            badgeEvalService,
             NullLogger<TerritoryClaimDefendService>.Instance);
     }
 

@@ -204,6 +204,9 @@ namespace GradProject.Infrastructure.Services.Gamification
                 BadgeType.PersonalBest => "Personal Best",
                 BadgeType.Territory => "Territory",
                 BadgeType.ChallengeCompletion => "Challenge Completion",
+                BadgeType.TerritoryFirstClaim => "Territory: First Claim",
+                BadgeType.TerritoryDefender => "Territory: Defender",
+                BadgeType.TerritoryConqueror => "Territory: Conqueror",
                 _ => badge.Type.ToString()
             };
 
@@ -221,4 +224,5 @@ namespace GradProject.Infrastructure.Services.Gamification
         }
     }
 }
+
 
