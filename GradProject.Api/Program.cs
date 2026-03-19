@@ -90,6 +90,7 @@ builder.Services.AddScoped<TerritoryAchievementService>();
 builder.Services.AddScoped<ITerritoryScoreEngine, TerritoryScoreEngine>();
 builder.Services.AddScoped<ITerritoryClaimDefendService, TerritoryClaimDefendService>();
 builder.Services.AddScoped<IBadgeService, BadgeService>();
+builder.Services.AddScoped<IBadgeEvaluationService, BadgeEvaluationService>();
 builder.Services.AddScoped<IRunningAnalyticsService, RunningAnalyticsService>();
 builder.Services.AddSingleton<PolylineDecoder>();
 builder.Services.AddSingleton<GeometryConverter>();
