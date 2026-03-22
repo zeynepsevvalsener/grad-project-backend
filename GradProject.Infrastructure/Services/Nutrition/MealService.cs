@@ -93,18 +93,42 @@ namespace GradProject.Infrastructure.Services.Nutrition
                     throw new KeyNotFoundException($"Food(s) not found: {string.Join(", ", missingFoods)}");
             }
 
-            var meal = new Meal
-            {
-                UserId = userId,
-                MealType = request.MealType,
-                LoggedAt = request.LoggedAt,
-                RawText = request.RawText,
-                Notes = request.Notes,
-                CreatedAt = DateTime.UtcNow
-            };
+            // YENÝ: Ayný gün + ayný MealType için mevcut Meal'ý bul
+            var date = DateOnly.FromDateTime(request.LoggedAt);
+            var start = date.ToDateTime(TimeOnly.MinValue);
+            var end = start.AddDays(1);
 
-            _db.Meals.Add(meal);
-            await _db.SaveChangesAsync(ct);
+            var meal = await _db.Meals
+                .Include(m => m.MealFoods)
+                .FirstOrDefaultAsync(m =>
+                    m.UserId == userId &&
+                    m.MealType == request.MealType &&
+                    m.LoggedAt >= start &&
+                    m.LoggedAt < end, ct);
+
+            if (meal == null)
+            {
+                meal = new Meal
+                {
+                    UserId = userId,
+                    MealType = request.MealType,
+                    LoggedAt = request.LoggedAt,
+                    RawText = request.RawText,
+                    Notes = request.Notes,
+                    CreatedAt = DateTime.UtcNow
+                };
+                _db.Meals.Add(meal);
+                await _db.SaveChangesAsync(ct);
+            }
+            else
+            {
+                // Mevcut Meal'ý güncelle
+                meal.UpdatedAt = DateTime.UtcNow;
+                if (!string.IsNullOrWhiteSpace(request.RawText))
+                    meal.RawText = request.RawText;
+                if (!string.IsNullOrWhiteSpace(request.Notes))
+                    meal.Notes = request.Notes;
+            }
 
             if (request.Foods != null && request.Foods.Any())
             {
@@ -112,14 +136,12 @@ namespace GradProject.Infrastructure.Services.Nutrition
                     .Where(f => request.Foods.Select(mf => mf.FoodId).Contains(f.Id))
                     .ToListAsync(ct);
 
-                var mealFoods = new List<MealFood>();
-
                 foreach (var foodDto in request.Foods)
                 {
                     var food = foods.First(f => f.Id == foodDto.FoodId);
                     var portionG = ConvertToGrams(foodDto.Quantity, foodDto.Unit, food.DefaultPortionG);
 
-                    mealFoods.Add(new MealFood
+                    _db.MealFoods.Add(new MealFood
                     {
                         MealId = meal.Id,
                         FoodId = foodDto.FoodId,
@@ -127,31 +149,28 @@ namespace GradProject.Infrastructure.Services.Nutrition
                         Unit = foodDto.Unit
                     });
 
-                    //  NEW: MealId set edildi
-                    var consumedFood = new ConsumedFood
+                    _db.ConsumedFoods.Add(new ConsumedFood
                     {
                         UserId = userId,
                         FoodId = foodDto.FoodId,
                         PortionG = portionG,
                         ConsumedAt = request.LoggedAt,
                         MealId = meal.Id
-                    };
-                    _db.ConsumedFoods.Add(consumedFood);
+                    });
                 }
 
-                _db.MealFoods.AddRange(mealFoods);
                 await _db.SaveChangesAsync(ct);
             }
 
             var createdDate = DateOnly.FromDateTime(request.LoggedAt);
             await _dailyAgg.AggregateDailyIntakeAsync(userId, createdDate, ct);
 
-            var createdMeal = await _db.Meals
+            var updatedMeal = await _db.Meals
                 .Include(m => m.MealFoods)
                     .ThenInclude(mf => mf.Food)
                 .FirstAsync(m => m.Id == meal.Id, ct);
 
-            return MapToResponseDto(createdMeal);
+            return MapToResponseDto(updatedMeal);
         }
 
         public async Task<MealResponseDto?> UpdateAsync(int userId, int mealId, UpdateMealRequestDto request, CancellationToken ct = default)

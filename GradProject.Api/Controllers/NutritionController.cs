@@ -130,15 +130,12 @@ namespace GradProject.Api.Controllers
         /// Rule-based NLP parsing: converts meal text into structured food items + portion grams + macro estimates.
         /// </summary>
         [HttpPost("parse-meal")]
-        public async Task<ActionResult<MealResponseDto>> ParseAndSaveMeal([FromBody] MealParseRequestDto request, CancellationToken ct)
+        public async Task<ActionResult<MealResponseDto>> ParseAndSaveMeal(
+    [FromBody] MealParseRequestDto request, CancellationToken ct)
         {
             var userId = GetUserIdOrThrow();
 
-            // Language auto-resolve:
-            // 1) request.Language varsa onu kullan (override)
-            // 2) yoksa DB(User.Language)
-            // 3) yoksa Accept-Language header
-            // 4) yoksa "en"
+            // Dil çözümleme
             if (string.IsNullOrWhiteSpace(request.Language) || request.Language == "string")
             {
                 var userLang = await _db.Users
@@ -159,19 +156,19 @@ namespace GradProject.Api.Controllers
                 .ToList();
 
             if (!validItems.Any())
-            {
                 return BadRequest(new { message = _localizationService.Get("ai.food.notfound") });
-            }
 
             var mealFoods = validItems.Select(item => new MealFoodDto
             {
-                FoodId = item.MatchedFoodId.Value,
+                FoodId = item.MatchedFoodId!.Value,
                 Quantity = item.PortionG,
                 Unit = "g"
             }).ToList();
 
             var consumedAt = request.ConsumedAt ?? DateTime.UtcNow;
-            var mealType = DetermineMealTypeByTime(consumedAt);
+
+            // AI'dan MealType geldiyse onu kullan, gelmezse saate göre belirle
+            var mealType = request.MealType ?? DetermineMealTypeByTime(consumedAt);
 
             var createMealRequest = new CreateMealRequestDto
             {
@@ -194,10 +191,9 @@ namespace GradProject.Api.Controllers
                     .FirstOrDefaultAsync(ct);
 
                 if (!string.IsNullOrWhiteSpace(alias))
-                {
-                    food.FoodName = alias; // Girdiği dilde döndürüyor "Apple" -> "Elma"
-                }
+                    food.FoodName = alias;
             }
+
             return Ok(savedMeal);
         }
 
