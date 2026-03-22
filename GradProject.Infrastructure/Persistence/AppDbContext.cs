@@ -291,13 +291,17 @@ namespace GradProject.Infrastructure.Persistence
             modelBuilder.Entity<DailySummary>(e =>
             {
                 e.HasKey(ds => ds.Id);
-
-                e.Property(ds => ds.Date)
-                 .IsRequired();
+                e.Property(ds => ds.Date).IsRequired();
 
                 e.Property(ds => ds.TotalProtein).HasPrecision(10, 2);
                 e.Property(ds => ds.TotalCarbs).HasPrecision(10, 2);
                 e.Property(ds => ds.TotalFat).HasPrecision(10, 2);
+
+                // Hedef kolonlarý — nullable, ilk aggregation'da bir kez yazýlýr
+                e.Property(ds => ds.CalorieTarget).IsRequired(false);
+                e.Property(ds => ds.ProteinTargetG).HasPrecision(10, 2).IsRequired(false);
+                e.Property(ds => ds.CarbTargetG).HasPrecision(10, 2).IsRequired(false);
+                e.Property(ds => ds.FatTargetG).HasPrecision(10, 2).IsRequired(false);
 
                 e.HasIndex(ds => new { ds.UserId, ds.Date })
                  .IsUnique()

@@ -4,6 +4,7 @@ using GradProject.Application.Interfaces;
 using GradProject.Application.Interfaces.Nutrition;
 using GradProject.Application.Interfaces.Nutrition.AI;
 using GradProject.Infrastructure.Persistence;
+using GradProject.Infrastructure.Services.Nutrition;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -24,6 +25,7 @@ namespace GradProject.Api.Controllers
         private readonly IMealService _mealService;
         private readonly AppDbContext _db;
         private readonly ILocalizationService _localizationService;
+        private readonly IWeeklyNutritionReportService _weeklyNutritionReportService;
         public NutritionController(
             INutritionCalculationService nutritionCalculationService,
             INutritionTargetsService nutritionTargetsService,
@@ -31,6 +33,7 @@ namespace GradProject.Api.Controllers
             IMealParsingService mealParsingService,
             IMealService mealService,
             ILocalizationService localizationService,
+            IWeeklyNutritionReportService weeklyNutritionReportService,
             AppDbContext db)
         {
             _nutritionCalculationService = nutritionCalculationService;
@@ -39,6 +42,7 @@ namespace GradProject.Api.Controllers
             _mealParsingService = mealParsingService;
             _mealService = mealService;
             _localizationService = localizationService;
+            _weeklyNutritionReportService = weeklyNutritionReportService;
             _db = db;
         }
 
@@ -81,25 +85,25 @@ namespace GradProject.Api.Controllers
         public async Task<ActionResult<DailySummaryDto>> GetDailySummary([FromQuery] string date, CancellationToken ct)
         {
             if (!DateOnly.TryParse(date, out var dateOnly))
-            {
                 return BadRequest(new { message = "Invalid date format. Use yyyy-MM-dd format." });
-            }
 
             var userId = GetUserIdOrThrow();
             var summary = await _dailyIntakeAggregationService.GetDailySummaryAsync(userId, dateOnly, ct);
-            /* return summary == null
-                ? NotFound(new { message = $"No daily summary found for {dateOnly:yyyy-MM-dd}" })
-                : Ok(summary);*/ //bir sıkıntı olmazsa bunu sil
-            if (summary == null)
-            {
-                return NotFound(new { message = $"No daily summary found for {dateOnly:yyyy-MM-dd}" });
-            }
 
+            if (summary == null)
+                return NotFound(new { message = $"No daily summary found for {dateOnly:yyyy-MM-dd}" });
+
+            // AI feedback — hedef artık summary içinden geliyor, TDEE çağrısı kaldırıldı
             try
             {
-                var tdeeInfo = await _nutritionCalculationService.GetMyTdeeAsync(userId, ct);
                 var lang = GetLangFromHeader() ?? "en";
-                summary.AiFeedback = await GenerateDailyAiFeedback(summary, tdeeInfo, lang, ct);
+                var payload = new
+                {
+                    totalIntake = summary.TotalIntakeCalories,
+                    targetTdee = summary.CalorieTarget ?? 0,
+                    language = lang
+                };
+                summary.AiFeedback = await _mealParsingService.GetDailyFeedbackAsync(payload, ct);
             }
             catch
             {
@@ -108,18 +112,18 @@ namespace GradProject.Api.Controllers
 
             return Ok(summary);
         }
-        private async Task<string?> GenerateDailyAiFeedback(DailySummaryDto summary, TdeeResultDto tdee, string lang, CancellationToken ct)
-        {
-            var payload = new
-            {
-                totalIntake = (int)summary.TotalIntakeCalories,
-                targetTdee = (int)tdee.Tdee,
-                bmi = (double)tdee.Bmi,
-                gender = tdee.Gender?.ToString() ?? "Unknown",
-                language = lang ?? "en"
-            };
 
-            return await _mealParsingService.GetDailyFeedbackAsync(payload, ct);
+        [HttpGet("weekly-report")]
+        public async Task<ActionResult<WeeklyNutritionReportDto>> GetWeeklyReport(
+    [FromQuery] string weekStart,
+    CancellationToken ct)
+        {
+            if (!DateOnly.TryParse(weekStart, out var weekStartDate))
+                return BadRequest(new { message = "Invalid date format. Use yyyy-MM-dd format." });
+
+            var userId = GetUserIdOrThrow();
+            var report = await _weeklyNutritionReportService.GetWeeklyReportAsync(userId, weekStartDate, ct);
+            return Ok(report);
         }
 
         /// <summary>
