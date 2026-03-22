@@ -1,4 +1,4 @@
-﻿using FluentValidation;
+using FluentValidation;
 using GradProject.Application.DTOs.Auth;
 using GradProject.Application.DTOs.Profile;
 using GradProject.Application.Interfaces;
@@ -7,8 +7,6 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using GradProject.Application.DTOs.Auth;
-using GradProject.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 
@@ -96,12 +94,6 @@ namespace GradProject.Api.Controllers
                 ExpiresAtUtc = expiresAtUtc,
                 Language = user.Language
             });
-        }
-        [HttpGet("debug/throw")]
-        [AllowAnonymous]
-        public IActionResult DebugThrow()
-        {
-            throw new Exception("debug throw");
         }
     }
 }
