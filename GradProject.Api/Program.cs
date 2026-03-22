@@ -73,6 +73,7 @@ builder.Services.AddScoped<INutritionTargetsService, NutritionTargetsService>();
 builder.Services.AddScoped<IFoodSearchService, FoodSearchService>();
 builder.Services.AddScoped<IRunActivityService, RunActivityService>();
 builder.Services.AddScoped<IDailyIntakeAggregationService, DailyIntakeAggregationService>();
+builder.Services.AddScoped<IWeeklyNutritionReportService, WeeklyNutritionReportService>();
 //builder.Services.AddScoped<IMealParsingService, MealParsingService>(); şimdilik alttakine çevirdim denemek için.
 builder.Services.AddHttpClient<IMealParsingService, MealParsingService>(client =>
 {

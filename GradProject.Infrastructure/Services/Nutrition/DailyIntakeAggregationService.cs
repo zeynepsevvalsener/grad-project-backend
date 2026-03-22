@@ -28,7 +28,7 @@ namespace GradProject.Infrastructure.Services.Nutrition
             var start = date.ToDateTime(TimeOnly.MinValue);
             var end = start.AddDays(1);
 
-            // ✅ Source of truth: ConsumedFoods
+            // Source of truth: ConsumedFoods
             var consumedFoods = await _db.ConsumedFoods
                 .Include(cf => cf.Food)
                 .Where(cf => cf.UserId == userId && cf.ConsumedAt >= start && cf.ConsumedAt < end)
@@ -56,21 +56,74 @@ namespace GradProject.Infrastructure.Services.Nutrition
 
             if (latestRun != null)
             {
-                var calculatedCalories = await CalculateBurnedCaloriesAsync(latestRun.DistanceMeters, latestRun.MovingTimeSeconds, userId, ct);
+                var calculatedCalories = await CalculateBurnedCaloriesAsync(
+                    latestRun.DistanceMeters, latestRun.MovingTimeSeconds, userId, ct);
                 if (calculatedCalories.HasValue)
-                {
                     latestRun.BurnedCalories = calculatedCalories.Value;
-                }
             }
 
             var dailySummary = await _db.DailySummaries
                 .FirstOrDefaultAsync(ds => ds.UserId == userId && ds.Date == date, ct);
 
-            var previousCalories = dailySummary?.TotalIntakeCalories ?? 0;
-            var caloriesDifference = totalCalories - previousCalories;
-
             if (dailySummary == null)
             {
+                // İlk kez oluşturuluyorsa hedefleri de hesapla ve snapshot olarak kaydet
+                int? calorieTarget = null;
+                decimal? proteinTargetG = null;
+                decimal? carbTargetG = null;
+                decimal? fatTargetG = null;
+
+                try
+                {
+                    var profile = await _db.Profiles
+                        .AsNoTracking()
+                        .FirstOrDefaultAsync(p => p.UserId == userId, ct);
+
+                    if (profile?.Weight != null && profile.Height != null && profile.DateOfBirth != null
+                        && profile.Height > 0 && profile.Weight > 0)
+                    {
+                        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+                        var dob = DateOnly.FromDateTime(profile.DateOfBirth.Value);
+                        var age = today.Year - dob.Year;
+                        if (dob > today.AddYears(-age)) age--;
+
+                        if (age >= 10 && age <= 120)
+                        {
+                            // Mifflin–St Jeor
+                            var baseValue = (10m * profile.Weight.Value)
+                                          + (6.25m * profile.Height.Value)
+                                          - (5m * age);
+
+                            var bmr = profile.Gender == Domain.Enums.Gender.Male
+                                ? baseValue + 5m
+                                : baseValue - 161m;
+
+                            var activityFactor = profile.ActivityLevel switch
+                            {
+                                Domain.Enums.ActivityLevel.Sedentary => 1.2m,
+                                Domain.Enums.ActivityLevel.LightlyActive => 1.375m,
+                                Domain.Enums.ActivityLevel.ModeratelyActive => 1.55m,
+                                Domain.Enums.ActivityLevel.VeryActive => 1.725m,
+                                Domain.Enums.ActivityLevel.ExtraActive => 1.9m,
+                                _ => 1.2m
+                            };
+
+                            var tdee = bmr * activityFactor;
+
+                            calorieTarget = (int)Math.Round(tdee);
+                            proteinTargetG = Math.Round(tdee * 0.30m / 4m, 1);
+                            carbTargetG = Math.Round(tdee * 0.40m / 4m, 1);
+                            fatTargetG = Math.Round(tdee * 0.30m / 9m, 1);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Could not calculate targets for DailySummary. UserId={UserId}, Date={Date}",
+                        userId, date);
+                }
+
                 dailySummary = new Domain.Entities.DailySummary
                 {
                     UserId = userId,
@@ -78,12 +131,18 @@ namespace GradProject.Infrastructure.Services.Nutrition
                     TotalIntakeCalories = totalCalories,
                     TotalProtein = totalProtein,
                     TotalCarbs = totalCarbs,
-                    TotalFat = totalFat
+                    TotalFat = totalFat,
+                    CalorieTarget = calorieTarget,
+                    ProteinTargetG = proteinTargetG,
+                    CarbTargetG = carbTargetG,
+                    FatTargetG = fatTargetG
                 };
+
                 _db.DailySummaries.Add(dailySummary);
             }
             else
             {
+                // Sonraki aggregation'larda sadece tüketimi güncelle, hedeflere DOKUNMA
                 dailySummary.TotalIntakeCalories = totalCalories;
                 dailySummary.TotalProtein = totalProtein;
                 dailySummary.TotalCarbs = totalCarbs;
@@ -119,11 +178,14 @@ namespace GradProject.Infrastructure.Services.Nutrition
             }
             else
             {
-                _logger.LogDebug("No calories to update challenge progress for user {UserId} on date {Date}", userId, date);
+                _logger.LogDebug(
+                    "No calories to update challenge progress for user {UserId} on date {Date}",
+                    userId, date);
             }
         }
 
-        private async Task<int?> CalculateBurnedCaloriesAsync(double distanceMeters, int durationSeconds, int userId, CancellationToken ct)
+        private async Task<int?> CalculateBurnedCaloriesAsync(
+            double distanceMeters, int durationSeconds, int userId, CancellationToken ct)
         {
             if (distanceMeters <= 0 || durationSeconds <= 0)
                 return null;
@@ -138,31 +200,23 @@ namespace GradProject.Infrastructure.Services.Nutrition
             var weightKg = (double)profile.Weight.Value;
             var distanceKm = distanceMeters / 1000.0;
             var durationHours = durationSeconds / 3600.0;
-
             var speedKmh = durationHours > 0 ? distanceKm / durationHours : 0;
-
             var met = CalculateMetValue(speedKmh);
 
-            var burnedCalories = met * weightKg * durationHours;
-
-            return (int)Math.Round(burnedCalories);
+            return (int)Math.Round(met * weightKg * durationHours);
         }
 
         private double CalculateMetValue(double speedKmh)
         {
-            if (speedKmh < 6.5)
-                return 6.0;
-            else if (speedKmh < 8.0)
-                return 7.0;
-            else if (speedKmh < 9.7)
-                return 8.0;
-            else if (speedKmh < 11.3)
-                return 9.0;
-            else
-                return 10.0;
+            if (speedKmh < 6.5) return 6.0;
+            if (speedKmh < 8.0) return 7.0;
+            if (speedKmh < 9.7) return 8.0;
+            if (speedKmh < 11.3) return 9.0;
+            return 10.0;
         }
 
-        public async Task<DailySummaryDto?> GetDailySummaryAsync(int userId, DateOnly date, CancellationToken ct = default)
+        public async Task<DailySummaryDto?> GetDailySummaryAsync(
+            int userId, DateOnly date, CancellationToken ct = default)
         {
             var dailySummary = await _db.DailySummaries
                 .AsNoTracking()
@@ -180,14 +234,10 @@ namespace GradProject.Infrastructure.Services.Nutrition
             int? burnedCalories = null;
             if (latestRun != null)
             {
-                if (latestRun.BurnedCalories.HasValue)
-                {
-                    burnedCalories = latestRun.BurnedCalories.Value;
-                }
-                else
-                {
-                    burnedCalories = await CalculateBurnedCaloriesAsync(latestRun.DistanceMeters, latestRun.MovingTimeSeconds, userId, ct);
-                }
+                burnedCalories = latestRun.BurnedCalories.HasValue
+                    ? latestRun.BurnedCalories.Value
+                    : await CalculateBurnedCaloriesAsync(
+                        latestRun.DistanceMeters, latestRun.MovingTimeSeconds, userId, ct);
             }
 
             return new DailySummaryDto
@@ -198,6 +248,10 @@ namespace GradProject.Infrastructure.Services.Nutrition
                 TotalProtein = dailySummary.TotalProtein,
                 TotalCarbs = dailySummary.TotalCarbs,
                 TotalFat = dailySummary.TotalFat,
+                CalorieTarget = dailySummary.CalorieTarget,
+                ProteinTargetG = dailySummary.ProteinTargetG,
+                CarbTargetG = dailySummary.CarbTargetG,
+                FatTargetG = dailySummary.FatTargetG,
                 BurnedCalories = burnedCalories
             };
         }
