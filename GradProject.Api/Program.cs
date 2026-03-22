@@ -87,6 +87,7 @@ builder.Services.AddScoped<IMealService, MealService>();
 builder.Services.AddScoped<IChallengeService, ChallengeService>();
 builder.Services.AddScoped<IChallengeProgressService, ChallengeProgressService>();
 builder.Services.AddScoped<IAchievementEventPublisher, AchievementEventService>();
+builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<TerritoryAchievementService>();
 builder.Services.AddScoped<ITerritoryScoreEngine, TerritoryScoreEngine>();
 builder.Services.AddScoped<ITerritoryClaimDefendService, TerritoryClaimDefendService>();
