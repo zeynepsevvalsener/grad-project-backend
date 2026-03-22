@@ -1,5 +1,6 @@
 using DotNetEnv;
 using FluentValidation;
+using GradProject.Api.Models;
 using GradProject.Api.Middlewares;
 using GradProject.Api.Options;
 using GradProject.Api.HostedServices;
@@ -24,6 +25,7 @@ using GradProject.Infrastructure.Services.Nutrition;
 using GradProject.Infrastructure.Services.Nutrition.AI;
 using GradProject.Infrastructure.Services.Running;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -126,8 +128,34 @@ builder.Services.AddControllers()
     })
     .ConfigureApiBehaviorOptions(options =>
     {
-        // Ensure DateOnly and TimeOnly are properly handled in query strings
         options.SuppressModelStateInvalidFilter = false;
+        options.InvalidModelStateResponseFactory = context =>
+        {
+            var errors = context.ModelState
+                .Where(x => x.Value?.Errors.Count > 0)
+                .ToDictionary(
+                    x => x.Key,
+                    x => x.Value!.Errors
+                        .Select(e => string.IsNullOrEmpty(e.ErrorMessage)
+                            ? e.Exception?.Message ?? "Invalid value"
+                            : e.ErrorMessage)
+                        .ToArray());
+
+            var traceId = context.HttpContext.Response.Headers["X-Correlation-Id"].FirstOrDefault()
+                          ?? context.HttpContext.TraceIdentifier;
+
+            var lang = context.HttpContext.RequestServices.GetService<ICurrentLanguage>()?.Value;
+            var message = lang == "tr"
+                ? "Doğrulama başarısız."
+                : "Validation failed.";
+
+            return new BadRequestObjectResult(new ApiErrorResponse
+            {
+                Message = message,
+                TraceId = traceId,
+                Errors = errors
+            });
+        };
     });
 
 // FluentValidation validators DI
