@@ -3,6 +3,7 @@ using System;
 using GradProject.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NetTopologySuite.Geometries;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace GradProject.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260322100344_Add_AchievementEvents_ReadAtUtc")]
+    partial class Add_AchievementEvents_ReadAtUtc
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -76,6 +79,10 @@ namespace GradProject.Infrastructure.Migrations
 
                     b.HasIndex("Type")
                         .HasDatabaseName("IX_AchievementEvents_Type");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("IX_AchievementEvents_UserId_Unread")
+                        .HasFilter("\"ReadAtUtc\" IS NULL");
 
                     b.HasIndex("UserId", "OccurredAt")
                         .HasDatabaseName("IX_AchievementEvents_UserId_OccurredAt");
@@ -424,9 +431,6 @@ namespace GradProject.Infrastructure.Migrations
 
                     b.Property<DateOnly>("SnapshotDate")
                         .HasColumnType("date");
-
-                    b.Property<int>("TerritoryCount")
-                        .HasColumnType("integer");
 
                     b.Property<double?>("TerritoryScore")
                         .HasColumnType("double precision");
