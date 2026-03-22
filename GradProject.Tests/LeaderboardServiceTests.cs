@@ -6,6 +6,24 @@ namespace GradProject.Tests;
 public class LeaderboardServiceTests
 {
     [Fact]
+    public void RankingEngine_OrdersBy_TerritoryCount_First()
+    {
+        var start = DateTime.UtcNow.AddDays(-7);
+        var data = new List<LeaderboardAggregateData>
+        {
+            new() { UserId = 1, Email = "a@x.com", TerritoryCount = 1, TerritoryScore = 100, TotalDistance = 9000, TotalMovingTime = 2700, ChallengeStartDate = start, JoinedAt = start },
+            new() { UserId = 2, Email = "b@x.com", TerritoryCount = 3, TerritoryScore = 10, TotalDistance = 1000, TotalMovingTime = 400, ChallengeStartDate = start, JoinedAt = start }
+        };
+        var engine = new RankingEngine();
+        var ranked = engine.CalculateRanks(data);
+
+        Assert.Equal(2, ranked.Count);
+        Assert.Equal(1, ranked[0].Rank);
+        Assert.Equal(2, ranked[0].UserId);
+        Assert.Equal(3, ranked[0].TerritoryCount);
+    }
+
+    [Fact]
     public void RankingEngine_OrdersBy_TotalDistance_When_TerritoryEqual()
     {
         var data = new List<LeaderboardAggregateData>

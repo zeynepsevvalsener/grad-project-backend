@@ -21,6 +21,7 @@ public class LeaderboardAggregator
     /// Retrieves global aggregated leaderboard data across all challenges and running activities.
     /// Eligible users: anyone with at least one UserChallenge or one RunningActivity.
     /// Territory score = SUM of UserChallenge.TerritoryScore across all challenges.
+    /// Territory count = COUNT of active Territories where user is CurrentOwnerUserId (same for global and challenge boards).
     /// Distance/moving time = SUM of all RunningActivities (optionally filtered by date range).
     /// CompletedAt is always null (no single challenge), so CompletionSpeed will be null.
     /// </summary>
@@ -40,6 +41,7 @@ public class LeaderboardAggregator
                        p."FirstName",
                        p."LastName",
                        ts."TerritoryScore",
+                       COALESCE(tc."TerritoryCount", 0)::int4 AS "TerritoryCount",
                        NULL::bigint AS "TotalDurationSeconds",
                        NULL::timestamp AS "CompletedAt",
                        COALESCE(ts."EarliestJoin", NOW()) AS "JoinedAt",
@@ -53,6 +55,13 @@ public class LeaderboardAggregator
                 ) eligible
                 JOIN "Users" u ON eligible."UserId" = u."Id"
                 LEFT JOIN "Profiles" p ON u."Id" = p."UserId"
+                LEFT JOIN (
+                    SELECT t."CurrentOwnerUserId" AS "UserId",
+                           COUNT(*)::int4 AS "TerritoryCount"
+                    FROM "Territories" t
+                    WHERE t."IsActive" = TRUE AND t."CurrentOwnerUserId" IS NOT NULL
+                    GROUP BY t."CurrentOwnerUserId"
+                ) tc ON eligible."UserId" = tc."UserId"
                 LEFT JOIN (
                     SELECT uc."UserId",
                            SUM(COALESCE(uc."TerritoryScore", 0)) AS "TerritoryScore",
@@ -79,6 +88,7 @@ public class LeaderboardAggregator
                        p."FirstName",
                        p."LastName",
                        ts."TerritoryScore",
+                       COALESCE(tc."TerritoryCount", 0)::int4 AS "TerritoryCount",
                        NULL::bigint AS "TotalDurationSeconds",
                        NULL::timestamp AS "CompletedAt",
                        COALESCE(ts."EarliestJoin", NOW()) AS "JoinedAt",
@@ -92,6 +102,13 @@ public class LeaderboardAggregator
                 ) eligible
                 JOIN "Users" u ON eligible."UserId" = u."Id"
                 LEFT JOIN "Profiles" p ON u."Id" = p."UserId"
+                LEFT JOIN (
+                    SELECT t."CurrentOwnerUserId" AS "UserId",
+                           COUNT(*)::int4 AS "TerritoryCount"
+                    FROM "Territories" t
+                    WHERE t."IsActive" = TRUE AND t."CurrentOwnerUserId" IS NOT NULL
+                    GROUP BY t."CurrentOwnerUserId"
+                ) tc ON eligible."UserId" = tc."UserId"
                 LEFT JOIN (
                     SELECT uc."UserId",
                            SUM(COALESCE(uc."TerritoryScore", 0)) AS "TerritoryScore",
@@ -137,7 +154,9 @@ public class LeaderboardAggregator
             var (from, to) = dateRange.Value;
             sql = """
                 SELECT uc."UserId", u."Email", p."FirstName", p."LastName",
-                       uc."TerritoryScore", uc."TotalDurationSeconds", uc."CompletedAt",
+                       uc."TerritoryScore",
+                       COALESCE(tc."TerritoryCount", 0)::int4 AS "TerritoryCount",
+                       uc."TotalDurationSeconds", uc."CompletedAt",
                        uc."JoinedAt", c."StartDate" AS "ChallengeStartDate",
                        COALESCE(agg."Distance", 0)::float8 AS "TotalDistance",
                        COALESCE(agg."MovingTime", 0)::int4 AS "TotalMovingTime"
@@ -145,6 +164,13 @@ public class LeaderboardAggregator
                 JOIN "Users" u ON uc."UserId" = u."Id"
                 JOIN "Challenges" c ON uc."ChallengeId" = c."Id"
                 LEFT JOIN "Profiles" p ON u."Id" = p."UserId"
+                LEFT JOIN (
+                    SELECT t."CurrentOwnerUserId" AS "UserId",
+                           COUNT(*)::int4 AS "TerritoryCount"
+                    FROM "Territories" t
+                    WHERE t."IsActive" = TRUE AND t."CurrentOwnerUserId" IS NOT NULL
+                    GROUP BY t."CurrentOwnerUserId"
+                ) tc ON uc."UserId" = tc."UserId"
                 LEFT JOIN (
                     SELECT ra."UserId",
                            SUM(ra."DistanceMeters") AS "Distance",
@@ -161,7 +187,9 @@ public class LeaderboardAggregator
         {
             sql = """
                 SELECT uc."UserId", u."Email", p."FirstName", p."LastName",
-                       uc."TerritoryScore", uc."TotalDurationSeconds", uc."CompletedAt",
+                       uc."TerritoryScore",
+                       COALESCE(tc."TerritoryCount", 0)::int4 AS "TerritoryCount",
+                       uc."TotalDurationSeconds", uc."CompletedAt",
                        uc."JoinedAt", c."StartDate" AS "ChallengeStartDate",
                        COALESCE(agg."Distance", 0)::float8 AS "TotalDistance",
                        COALESCE(agg."MovingTime", 0)::int4 AS "TotalMovingTime"
@@ -169,6 +197,13 @@ public class LeaderboardAggregator
                 JOIN "Users" u ON uc."UserId" = u."Id"
                 JOIN "Challenges" c ON uc."ChallengeId" = c."Id"
                 LEFT JOIN "Profiles" p ON u."Id" = p."UserId"
+                LEFT JOIN (
+                    SELECT t."CurrentOwnerUserId" AS "UserId",
+                           COUNT(*)::int4 AS "TerritoryCount"
+                    FROM "Territories" t
+                    WHERE t."IsActive" = TRUE AND t."CurrentOwnerUserId" IS NOT NULL
+                    GROUP BY t."CurrentOwnerUserId"
+                ) tc ON uc."UserId" = tc."UserId"
                 LEFT JOIN (
                     SELECT ra."UserId",
                            SUM(ra."DistanceMeters") AS "Distance",

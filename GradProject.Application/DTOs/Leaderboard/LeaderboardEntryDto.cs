@@ -32,6 +32,12 @@ public class LeaderboardEntryDto
     public double? TerritoryScore { get; set; }
 
     /// <summary>
+    /// Number of territories currently owned (active regions on the map).
+    /// </summary>
+    [JsonPropertyName("territoryCount")]
+    public int TerritoryCount { get; set; }
+
+    /// <summary>
     /// Total distance in meters.
     /// </summary>
     [JsonPropertyName("totalDistance")]

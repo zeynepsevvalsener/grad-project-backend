@@ -16,6 +16,7 @@ public class LeaderboardSnapshot
     public int Rank { get; set; }
     public string Username { get; set; } = null!;
     public double? TerritoryScore { get; set; }
+    public int TerritoryCount { get; set; }
     public long TotalDistance { get; set; }
     public double AveragePace { get; set; }
     public long? CompletionSpeed { get; set; }
