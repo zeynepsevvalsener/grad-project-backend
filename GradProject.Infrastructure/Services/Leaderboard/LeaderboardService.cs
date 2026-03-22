@@ -134,6 +134,7 @@ public class LeaderboardService : ILeaderboardService
                     UserId = s.UserId,
                     Username = s.Username,
                     TerritoryScore = s.TerritoryScore,
+                    TerritoryCount = s.TerritoryCount,
                     TotalDistance = s.TotalDistance,
                     AveragePace = s.AveragePace,
                     CompletionSpeed = s.CompletionSpeed
@@ -376,6 +377,7 @@ public class LeaderboardService : ILeaderboardService
             Rank = e.Rank,
             Username = e.Username,
             TerritoryScore = e.TerritoryScore,
+            TerritoryCount = e.TerritoryCount,
             TotalDistance = e.TotalDistance,
             AveragePace = e.AveragePace,
             CompletionSpeed = e.CompletionSpeed

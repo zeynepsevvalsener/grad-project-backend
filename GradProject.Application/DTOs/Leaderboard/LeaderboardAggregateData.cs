@@ -4,6 +4,7 @@ namespace GradProject.Application.DTOs.Leaderboard;
 /// Internal class for aggregating leaderboard data from database queries.
 /// Contains database-mapped properties and computed properties for ranking calculations.
 /// <para>Edge-case handling for ranking:
+///   - TerritoryCount → current owned active territories (from Territories); higher ranks first.
 ///   - Null TerritoryScore → treated as 0 (ranks last among scored users).
 ///   - Zero TotalDistance → AveragePace = double.MaxValue (ranks last on pace).
 ///   - Null CompletedAt → CompletionSpeed = null → treated as long.MaxValue (ranks last on speed).
@@ -27,6 +28,9 @@ public class LeaderboardAggregateData
 
     /// <summary>Territory score from UserChallenge entity</summary>
     public double? TerritoryScore { get; set; }
+
+    /// <summary>Count of active territories where this user is current owner (map ownership).</summary>
+    public int TerritoryCount { get; set; }
 
     /// <summary>Total duration in seconds from UserChallenge entity</summary>
     public long? TotalDurationSeconds { get; set; }
