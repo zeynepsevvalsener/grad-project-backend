@@ -651,6 +651,10 @@ namespace GradProject.Infrastructure.Persistence
                 e.HasIndex(ae => new { ae.UserId, ae.OccurredAt })
                  .HasDatabaseName("IX_AchievementEvents_UserId_OccurredAt");
 
+                e.HasIndex(ae => ae.UserId)
+                 .HasFilter("\"ReadAtUtc\" IS NULL")
+                 .HasDatabaseName("IX_AchievementEvents_UserId_Unread");
+
                 e.HasIndex(ae => ae.Type)
                  .HasDatabaseName("IX_AchievementEvents_Type");
 

@@ -43,5 +43,10 @@ public class AchievementEvent
     /// </summary>
     public string DeduplicationKey { get; set; } = null!;
 
+    /// <summary>
+    /// When set, the in-app notification for this event is considered read (UTC).
+    /// </summary>
+    public DateTime? ReadAtUtc { get; set; }
+
     public User? User { get; set; }
 }
