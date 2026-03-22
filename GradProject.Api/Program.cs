@@ -94,6 +94,7 @@ builder.Services.AddScoped<ITerritoryClaimDefendService, TerritoryClaimDefendSer
 builder.Services.AddScoped<IBadgeService, BadgeService>();
 builder.Services.AddScoped<IBadgeEvaluationService, BadgeEvaluationService>();
 builder.Services.AddScoped<IRunningAnalyticsService, RunningAnalyticsService>();
+builder.Services.AddScoped<IWeeklyRunningSummaryService, WeeklyRunningSummaryService>();
 builder.Services.AddSingleton<PolylineDecoder>();
 builder.Services.AddSingleton<GeometryConverter>();
 builder.Services.AddScoped<IBoundingBoxService, BoundingBoxService>();
