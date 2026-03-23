@@ -30,17 +30,12 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
-using Serilog;
 using System.Text;
 using System.Text.Json.Serialization;
 
 DotNetEnv.Env.Load();
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Host.UseSerilog((ctx, cfg) => cfg
-    .ReadFrom.Configuration(ctx.Configuration)
-    .Enrich.FromLogContext()
-    .WriteTo.Console(new Serilog.Formatting.Json.JsonFormatter()));
 var aiUrl = builder.Configuration.GetValue<string>("AiServiceSettings:BaseUrl") ?? "http://127.0.0.1:8000";
 // Validate aiUrl to prevent Invalid URI errors
 if (string.IsNullOrWhiteSpace(aiUrl) || !Uri.TryCreate(aiUrl, UriKind.Absolute, out _))
@@ -78,14 +73,19 @@ builder.Services.AddScoped<IWeeklyNutritionReportService, WeeklyNutritionReportS
 builder.Services.AddHttpClient<IMealParsingService, MealParsingService>(client =>
 {
     if (!string.IsNullOrWhiteSpace(aiUrl) && Uri.TryCreate(aiUrl, UriKind.Absolute, out var uri))
-    {
         client.BaseAddress = uri;
-    }
     else
-    {
-        client.BaseAddress = new Uri("http://127.0.0.1:8000"); // Fallback
-    }
+        client.BaseAddress = new Uri("http://127.0.0.1:8000");
 });
+
+builder.Services.AddHttpClient<IChatService, ChatService>(client =>
+{
+    if (!string.IsNullOrWhiteSpace(aiUrl) && Uri.TryCreate(aiUrl, UriKind.Absolute, out var uri))
+        client.BaseAddress = uri;
+    else
+        client.BaseAddress = new Uri("http://127.0.0.1:8000");
+});
+
 builder.Services.AddScoped<IMealService, MealService>();
 builder.Services.AddScoped<IChallengeService, ChallengeService>();
 builder.Services.AddScoped<IChallengeProgressService, ChallengeProgressService>();
@@ -272,7 +272,6 @@ if (!app.Environment.IsDevelopment())
 
 
 app.UseMiddleware<CorrelationIdMiddleware>();
-app.UseSerilogRequestLogging();
 //  Exception handling
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
