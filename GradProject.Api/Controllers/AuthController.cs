@@ -1,13 +1,12 @@
-﻿using FluentValidation;
+using FluentValidation;
 using GradProject.Application.DTOs.Auth;
 using GradProject.Application.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 
 namespace GradProject.Api.Controllers
 {
-    [ApiController]
     [Route("api/v1/auth")]
-    public class AuthController : ControllerBase
+    public class AuthController : ApiControllerBase
     {
         private readonly IAuthService _authService;
         private readonly IValidator<RegisterRequestDto> _registerValidator;

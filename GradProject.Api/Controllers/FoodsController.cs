@@ -1,4 +1,4 @@
-﻿using FluentValidation;
+using FluentValidation;
 using GradProject.Application.DTOs.Common;
 using GradProject.Application.DTOs.Nutrition;
 using GradProject.Application.Interfaces.Nutrition;
@@ -7,10 +7,9 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace GradProject.Api.Controllers
 {
-    [ApiController]
     [Route("api/v1/foods")]
-    [Authorize] // read endpoints also require auth (MVP)
-    public class FoodsController : ControllerBase
+    [Authorize]
+    public class FoodsController : ApiControllerBase
     {
         private readonly IFoodService _foodService;
         private readonly IValidator<CreateFoodRequestDto> _createValidator;

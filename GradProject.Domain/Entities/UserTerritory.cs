@@ -3,8 +3,8 @@ using GradProject.Domain.Enums;
 namespace GradProject.Domain.Entities
 {
     /// <summary>
-    /// Kullanıcının bölge ile ilişkisi: unlock durumu, progress ve ownership.
-    /// Kayıt yoksa bölge Locked kabul edilir.
+    /// UserTerritoryProgress: kullanıcının bölge ile ilişkisi (unlock, progress, ownership).
+    /// Kayıt yoksa bölge Locked kabul edilir. Table: UserTerritories.
     /// </summary>
     public class UserTerritory
     {

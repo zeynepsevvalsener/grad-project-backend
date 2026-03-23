@@ -24,6 +24,7 @@ namespace GradProject.Infrastructure.Persistence
         public DbSet<LeaderboardSnapshot> LeaderboardSnapshots => Set<LeaderboardSnapshot>();
         public DbSet<FoodAlias> FoodAliases => Set<FoodAlias>();
         public DbSet<Territory> Territories => Set<Territory>();
+        public DbSet<TerritoryCell> TerritoryCells => Set<TerritoryCell>();
         public DbSet<UserTerritory> UserTerritories => Set<UserTerritory>();
         public DbSet<TerritoryUnlockCondition> TerritoryUnlockConditions => Set<TerritoryUnlockCondition>();
         public DbSet<TerritoryOwnershipHistory> TerritoryOwnershipHistories => Set<TerritoryOwnershipHistory>();
@@ -277,7 +278,7 @@ namespace GradProject.Infrastructure.Persistence
 
                 //  NEW: optional FK ConsumedFood -> Meal (NO SURPRISE CASCADE)
                 e.HasOne(cf => cf.Meal)
-                 .WithMany() // Meal tarafnda collection eklemedik (clean + minimal)
+                 .WithMany() // Meal tarafï¿½nda collection eklemedik (clean + minimal)
                  .HasForeignKey(cf => cf.MealId)
                  .IsRequired(false)
                  .OnDelete(DeleteBehavior.Restrict);
@@ -297,7 +298,7 @@ namespace GradProject.Infrastructure.Persistence
                 e.Property(ds => ds.TotalCarbs).HasPrecision(10, 2);
                 e.Property(ds => ds.TotalFat).HasPrecision(10, 2);
 
-                // Hedef kolonlarý — nullable, ilk aggregation'da bir kez yazýlýr
+                // Hedef kolonlarÃ½ â€” nullable, ilk aggregation'da bir kez yazÃ½lÃ½r
                 e.Property(ds => ds.CalorieTarget).IsRequired(false);
                 e.Property(ds => ds.ProteinTargetG).HasPrecision(10, 2).IsRequired(false);
                 e.Property(ds => ds.CarbTargetG).HasPrecision(10, 2).IsRequired(false);
@@ -584,6 +585,7 @@ namespace GradProject.Infrastructure.Persistence
                 e.Property(t => t.RegionCode).HasMaxLength(50);
                 e.Property(t => t.IconUrl).HasMaxLength(500);
                 e.Property(t => t.GeometryCells).HasColumnType("jsonb");
+                e.Property(t => t.PublicId).IsRequired();
                 e.Property(t => t.CurrentOwnerScoreSnapshot).HasPrecision(12, 4);
                 e.Property(t => t.Version).HasDefaultValue(0).IsConcurrencyToken();
                 e.HasOne(t => t.CurrentOwnerUser)
@@ -592,7 +594,24 @@ namespace GradProject.Infrastructure.Persistence
                  .IsRequired(false)
                  .OnDelete(DeleteBehavior.SetNull);
                 e.HasIndex(t => t.CurrentOwnerUserId).HasDatabaseName("IX_Territories_CurrentOwnerUserId");
+                e.HasIndex(t => t.PublicId).IsUnique().HasDatabaseName("IX_Territories_PublicId");
                 e.ToTable("Territories");
+            });
+
+            modelBuilder.Entity<TerritoryCell>(e =>
+            {
+                e.HasKey(c => c.Id);
+                e.Property(c => c.H3Index).IsRequired().HasMaxLength(64);
+                e.HasOne(c => c.Territory)
+                    .WithMany(t => t.TerritoryCells)
+                    .HasForeignKey(c => c.TerritoryId)
+                    .IsRequired()
+                    .OnDelete(DeleteBehavior.Cascade);
+                e.HasIndex(c => c.TerritoryId).HasDatabaseName("IX_TerritoryCells_TerritoryId");
+                e.HasIndex(c => new { c.TerritoryId, c.H3Index })
+                    .IsUnique()
+                    .HasDatabaseName("IX_TerritoryCells_TerritoryId_H3Index");
+                e.ToTable("TerritoryCells");
             });
 
             // USER TERRITORY (unlock/progress)
@@ -628,7 +647,7 @@ namespace GradProject.Infrastructure.Persistence
                 e.ToTable("TerritoryUnlockConditions");
             });
 
-            // ACHIEVEMENT EVENTS (BE-5 — domain/audit feed for all achievement milestones)
+            // ACHIEVEMENT EVENTS (BE-5 â€” domain/audit feed for all achievement milestones)
             modelBuilder.Entity<AchievementEvent>(e =>
             {
                 e.HasKey(ae => ae.Id);
@@ -647,7 +666,7 @@ namespace GradProject.Infrastructure.Persistence
                 e.Property(ae => ae.Metadata)
                  .HasColumnType("jsonb");
 
-                // Unique constraint is the idempotency gate — duplicate domain events are silently dropped.
+                // Unique constraint is the idempotency gate â€” duplicate domain events are silently dropped.
                 e.HasIndex(ae => ae.DeduplicationKey)
                  .IsUnique()
                  .HasDatabaseName("UX_AchievementEvents_DeduplicationKey");

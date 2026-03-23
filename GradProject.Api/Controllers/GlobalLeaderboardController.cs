@@ -12,10 +12,9 @@ namespace GradProject.Api.Controllers;
 /// Global: GET api/v1/leaderboard
 /// Challenge alias: GET api/v1/leaderboard/challenge/{challengeId}
 /// </summary>
-[ApiController]
 [Route("api/v1/leaderboard")]
 [Authorize]
-public class GlobalLeaderboardController : ControllerBase
+public class GlobalLeaderboardController : ApiControllerBase
 {
     private readonly ILeaderboardService _leaderboardService;
     private readonly ILogger<GlobalLeaderboardController> _logger;

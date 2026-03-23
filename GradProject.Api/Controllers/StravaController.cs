@@ -1,5 +1,3 @@
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using GradProject.Application.DTOs.Common;
@@ -8,9 +6,8 @@ using GradProject.Infrastructure.Services;
 
 namespace GradProject.Api.Controllers
 {
-    [ApiController]
     [Route("api/v1/strava")]
-    public class StravaController : ControllerBase
+    public class StravaController : ApiControllerBase
     {
         private readonly StravaApiService _stravaApiService;
         private readonly IRunActivityService _runActivityService;
@@ -110,15 +107,5 @@ namespace GradProject.Api.Controllers
             return Ok(recentRuns);
         }
 
-        private int GetUserIdOrThrow()
-        {
-            var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub)
-                      ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
-
-            if (string.IsNullOrWhiteSpace(sub) || !int.TryParse(sub, out var userId))
-                throw new UnauthorizedAccessException("Invalid token.");
-
-            return userId;
-        }
     }
 }

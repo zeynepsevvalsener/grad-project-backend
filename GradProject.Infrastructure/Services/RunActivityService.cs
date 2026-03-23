@@ -24,9 +24,6 @@ namespace GradProject.Infrastructure.Services
         private readonly IChallengeProgressService _challengeProgressService;
         private readonly IBadgeEvaluationService _badgeEvaluationService;
 
-        // Add TerritoryAchievementService
-        private readonly Gamification.TerritoryAchievementService _territoryAchievementService;
-
         public RunActivityService(
             AppDbContext db,
             StravaApiService stravaApiService,
@@ -36,8 +33,7 @@ namespace GradProject.Infrastructure.Services
             IBoundingBoxService boundingBoxService,
             IConvexHullService convexHullService,
             IChallengeProgressService challengeProgressService,
-            IBadgeEvaluationService badgeEvaluationService,
-            Gamification.TerritoryAchievementService territoryAchievementService)
+            IBadgeEvaluationService badgeEvaluationService)
         {
             _db = db;
             _stravaApiService = stravaApiService;
@@ -48,7 +44,6 @@ namespace GradProject.Infrastructure.Services
             _convexHullService = convexHullService;
             _challengeProgressService = challengeProgressService;
             _badgeEvaluationService = badgeEvaluationService;
-            _territoryAchievementService = territoryAchievementService;
         }
 
         public async Task<FetchLatestRunResult> FetchLatestStravaRunAsync(int userId, CancellationToken ct = default)
@@ -219,56 +214,59 @@ namespace GradProject.Infrastructure.Services
 
             // Fetch from Strava directly
             var stravaActivities = await _stravaApiService.GetAllRunActivitiesAsync(user.StravaAccessToken, limit);
-            
-            var result = new List<RunActivityDto>();
-            var activitiesToSave = new List<RunningActivity>();
             var now = DateTime.UtcNow;
 
-            foreach (var activityJson in stravaActivities)
+            // Normalize all first so we can load existing records in one query
+            var normalized = stravaActivities
+                .Select(StravaActivityNormalizer.Normalize)
+                .Where(n => n != null)
+                .Select(n => n!)
+                .ToList();
+
+            var externalIds = normalized.Select(n => n.ExternalId).ToHashSet();
+            var existingByExternalId = await _db.RunningActivities
+                .Where(r => r.UserId == userId && externalIds.Contains(r.ExternalActivityId))
+                .ToDictionaryAsync(r => r.ExternalActivityId, ct);
+
+            var result = new List<RunActivityDto>(normalized.Count);
+            var activitiesToSave = new List<RunningActivity>();
+
+            foreach (var n in normalized)
             {
-                var normalized = StravaActivityNormalizer.Normalize(activityJson);
-                if (normalized == null)
-                    continue;
-
-                // Check if exists in DB
-                var existing = await _db.RunningActivities
-                    .FirstOrDefaultAsync(r => r.UserId == userId && r.ExternalActivityId == normalized.ExternalId, ct);
-
-                if (existing != null)
+                if (existingByExternalId.TryGetValue(n.ExternalId, out var existing))
                 {
-                    // Backfill route if missing (for activities synced before route feature was added)
-                    if (existing.Route == null && !string.IsNullOrWhiteSpace(normalized.SummaryPolyline))
+                    if (existing.Route == null && !string.IsNullOrWhiteSpace(n.SummaryPolyline))
                     {
-                        _logger.LogInformation("Backfilling route for activity {ExternalId} (DB Id: {Id})", normalized.ExternalId, existing.Id);
-                        SetRouteFromPolyline(existing, normalized.SummaryPolyline);
+                        _logger.LogInformation("Backfilling route for activity {ExternalId} (DB Id: {Id})", n.ExternalId, existing.Id);
+                        SetRouteFromPolyline(existing, n.SummaryPolyline);
                         existing.UpdatedAt = now;
-                        await _db.SaveChangesAsync(ct);
-                        _logger.LogInformation("Route backfilled successfully for activity {ExternalId}", normalized.ExternalId);
                     }
                     else if (existing.Route == null)
                     {
-                        _logger.LogDebug("Activity {ExternalId} has no route and Strava summary_polyline is empty", normalized.ExternalId);
+                        _logger.LogDebug("Activity {ExternalId} has no route and Strava summary_polyline is empty", n.ExternalId);
                     }
-                    
+
                     result.Add(MapToDto(existing));
                 }
                 else
                 {
-                    // Create new activity to save
-                    var newActivity = CreateRunningActivityFromNormalized(userId, normalized, now);
-                    SetRouteFromPolyline(newActivity, normalized.SummaryPolyline);
-
+                    var newActivity = CreateRunningActivityFromNormalized(userId, n, now);
+                    SetRouteFromPolyline(newActivity, n.SummaryPolyline);
                     activitiesToSave.Add(newActivity);
-                    result.Add(MapToDto(newActivity));
                 }
             }
 
-            // Save new activities to database in batch
-            if (activitiesToSave.Count > 0)
+            // Persist all changes (backfills + new) in one round-trip
+            if (activitiesToSave.Count > 0 || _db.ChangeTracker.HasChanges())
             {
-                _db.RunningActivities.AddRange(activitiesToSave);
+                if (activitiesToSave.Count > 0)
+                    _db.RunningActivities.AddRange(activitiesToSave);
+
                 await _db.SaveChangesAsync(ct);
-                
+
+                // Map newly saved activities to DTOs (IDs are now assigned)
+                result.AddRange(activitiesToSave.Select(MapToDto));
+
                 // Update challenge progress for each new activity (non-blocking)
                 foreach (var savedActivity in activitiesToSave)
                 {
@@ -282,24 +280,16 @@ namespace GradProject.Infrastructure.Services
                     }
                 }
 
-                // Evaluate badges once after all activities for this user are saved (non-blocking)
-                try
+                // Evaluate badges once after all new activities are saved (non-blocking)
+                if (activitiesToSave.Count > 0)
                 {
-                    await _badgeEvaluationService.EvaluateBadgeConditionsAsync(userId, ct);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to evaluate badge conditions for user {UserId} after batch run sync", userId);
-                }
-                
-                // Update IDs in result for newly saved activities
-                for (int i = 0; i < activitiesToSave.Count; i++)
-                {
-                    var savedActivity = activitiesToSave[i];
-                    var dtoIndex = result.FindIndex(r => r.ExternalId == savedActivity.ExternalActivityId && r.Id == 0);
-                    if (dtoIndex >= 0)
+                    try
                     {
-                        result[dtoIndex] = MapToDto(savedActivity);
+                        await _badgeEvaluationService.EvaluateBadgeConditionsAsync(userId, ct);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to evaluate badge conditions for user {UserId} after batch run sync", userId);
                     }
                 }
             }

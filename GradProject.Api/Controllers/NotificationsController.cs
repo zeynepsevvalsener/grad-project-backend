@@ -1,5 +1,3 @@
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
 using GradProject.Application.DTOs.Common;
 using GradProject.Application.DTOs.Notifications;
 using GradProject.Application.Interfaces;
@@ -8,10 +6,9 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace GradProject.Api.Controllers;
 
-[ApiController]
 [Route("api/v1/notifications")]
 [Authorize]
-public class NotificationsController : ControllerBase
+public class NotificationsController : ApiControllerBase
 {
     private readonly INotificationService _notifications;
 
@@ -55,14 +52,6 @@ public class NotificationsController : ControllerBase
         var userId = GetUserIdOrThrow();
         var updated = await _notifications.MarkAllAsReadAsync(userId, ct);
         return Ok(new MarkAllReadResponse { UpdatedCount = updated });
-    }
-
-    private int GetUserIdOrThrow()
-    {
-        var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (string.IsNullOrWhiteSpace(sub) || !int.TryParse(sub, out var userId))
-            throw new UnauthorizedAccessException("Invalid token.");
-        return userId;
     }
 
     public sealed class UnreadCountResponse

@@ -1,5 +1,3 @@
-﻿using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
 using GradProject.Application.DTOs.Chat;
 using GradProject.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -7,10 +5,9 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace GradProject.Api.Controllers
 {
-    [ApiController]
     [Route("api/v1/chat")]
     [Authorize]
-    public class ChatController : ControllerBase
+    public class ChatController : ApiControllerBase
     {
         private readonly IChatService _chatService;
 
@@ -28,13 +25,5 @@ namespace GradProject.Api.Controllers
             return Ok(response);
         }
 
-        private int GetUserIdOrThrow()
-        {
-            var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub)
-                      ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
-            if (string.IsNullOrWhiteSpace(sub) || !int.TryParse(sub, out var userId))
-                throw new UnauthorizedAccessException("Invalid token.");
-            return userId;
-        }
     }
 }

@@ -1,5 +1,6 @@
 using GradProject.Application.DTOs.Running;
 using GradProject.Application.Interfaces.Running;
+using GradProject.Application.Utilities;
 using GradProject.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -51,31 +52,14 @@ namespace GradProject.Infrastructure.Services.Running
 
             var activitiesForWeeklyAvg = recentActivities.Count > 0 ? recentActivities : validActivities;
 
-            var totalSecondsList = new List<double>();
-            foreach (var activity in activitiesForWeeklyAvg)
-            {
-                // Calculate total seconds per km for averaging
-                var totalSecondsPerKm = (activity.MovingTimeSeconds / activity.DistanceMeters) * 1000.0;
-                if (totalSecondsPerKm > 0)
-                {
-                    totalSecondsList.Add(totalSecondsPerKm);
-                }
-            }
+            var secondsPerKmList = activitiesForWeeklyAvg
+                .Select(a => (a.MovingTimeSeconds / a.DistanceMeters) * 1000.0)
+                .Where(s => s > 0)
+                .ToList();
 
-            // Calculate average in seconds, then convert to minutes.seconds format
-            var weeklyAveragePace = 0.0;
-            if (totalSecondsList.Count > 0)
-            {
-                var avgSecondsPerKm = totalSecondsList.Average();
-                var minutes = Math.Floor(avgSecondsPerKm / 60.0);
-                var seconds = avgSecondsPerKm % 60.0;
-                if (seconds >= 60.0)
-                {
-                    minutes += Math.Floor(seconds / 60.0);
-                    seconds = seconds % 60.0;
-                }
-                weeklyAveragePace = Math.Round(minutes + (seconds / 100.0), 2, MidpointRounding.AwayFromZero);
-            }
+            var weeklyAveragePace = secondsPerKmList.Count > 0
+                ? RunningPaceCalculator.FromSecondsPerKm(secondsPerKmList.Average())
+                : 0.0;
 
             // Get last 5 runs comparison
             var last5Runs = new List<PaceComparisonDto>();
@@ -90,18 +74,18 @@ namespace GradProject.Infrastructure.Services.Running
             for (int i = 0; i < last5ValidActivities.Count; i++)
             {
                 var activity = last5ValidActivities[i];
-                var pace = CalculatePace(activity.DistanceMeters, activity.MovingTimeSeconds);
+                var pace = RunningPaceCalculator.FromDistanceAndTime(activity.DistanceMeters, activity.MovingTimeSeconds);
 
                 if (i == 0)
                     firstPace = pace;
                 if (i == last5ValidActivities.Count - 1)
                     lastPace = pace;
 
-                // Delta is the difference between current and previous pace
-                // Since both are in minutes.seconds format, we can subtract directly
-                double? delta = previousPace.HasValue ? Math.Round(pace - previousPace.Value, 2, MidpointRounding.AwayFromZero) : (double?)null;
+                double? delta = previousPace.HasValue
+                    ? Math.Round(pace - previousPace.Value, 2, MidpointRounding.AwayFromZero)
+                    : (double?)null;
                 double? improvementPercentage = previousPace.HasValue && previousPace.Value > 0
-                    ? Math.Round(CalculateImprovementPercentage(previousPace.Value, pace), 2, MidpointRounding.AwayFromZero)
+                    ? Math.Round(RunningPaceCalculator.ImprovementPercent(previousPace.Value, pace), 2, MidpointRounding.AwayFromZero)
                     : (double?)null;
 
                 last5Runs.Add(new PaceComparisonDto
@@ -120,7 +104,7 @@ namespace GradProject.Infrastructure.Services.Running
             double? overallImprovement = null;
             if (firstPace.HasValue && lastPace.HasValue && firstPace.Value > 0)
             {
-                overallImprovement = Math.Round(CalculateImprovementPercentage(firstPace.Value, lastPace.Value), 2, MidpointRounding.AwayFromZero);
+                overallImprovement = Math.Round(RunningPaceCalculator.ImprovementPercent(firstPace.Value, lastPace.Value), 2, MidpointRounding.AwayFromZero);
             }
 
             return new PaceTrendResponseDto
@@ -163,7 +147,7 @@ namespace GradProject.Infrastructure.Services.Running
             {
                 if (activity.AverageHeartRate.HasValue && activity.DistanceMeters > 0 && activity.MovingTimeSeconds > 0)
                 {
-                    var pace = CalculatePace(activity.DistanceMeters, activity.MovingTimeSeconds);
+                    var pace = RunningPaceCalculator.FromDistanceAndTime(activity.DistanceMeters, activity.MovingTimeSeconds);
                     last5RunsTrend.Add(new HeartRateDataPointDto
                     {
                         ActivityId = activity.Id,
@@ -183,63 +167,6 @@ namespace GradProject.Infrastructure.Services.Running
                 Last5RunsTrend = last5RunsTrend,
                 TrendDirection = trendDirection
             };
-        }
-
-        /// <summary>
-        /// Calculates pace in minutes per kilometer (how many minutes to run 1 km)
-        /// Format: minutes.seconds (e.g., 5.45 means 5 minutes and 45 seconds)
-        /// The decimal part represents seconds (0-59), not fractional minutes
-        /// Formula: totalSecondsPerKm = (movingTimeSeconds / distanceMeters) * 1000
-        /// Returns value in format minutes.seconds rounded to 2 decimal places
-        /// </summary>
-        private double CalculatePace(double distanceMeters, int movingTimeSeconds)
-        {
-            if (distanceMeters <= 0 || movingTimeSeconds <= 0)
-                return 0.0;
-
-            // Calculate total seconds per kilometer
-            var totalSecondsPerKm = (movingTimeSeconds / distanceMeters) * 1000.0;
-            
-            // Extract minutes and seconds
-            var minutes = Math.Floor(totalSecondsPerKm / 60.0);
-            var seconds = totalSecondsPerKm % 60.0;
-            
-            // Ensure seconds don't exceed 59 (shouldn't happen, but safety check)
-            if (seconds >= 60.0)
-            {
-                minutes += Math.Floor(seconds / 60.0);
-                seconds = seconds % 60.0;
-            }
-            
-            // Format as minutes.seconds (e.g., 5.45 for 5 minutes 45 seconds)
-            var pace = minutes + (seconds / 100.0);
-            return Math.Round(pace, 2, MidpointRounding.AwayFromZero);
-        }
-
-        /// <summary>
-        /// Calculates improvement percentage
-        /// Formula: ((oldPaceSeconds - newPaceSeconds) / oldPaceSeconds) * 100
-        /// Positive = improvement (faster), Negative = regression (slower)
-        /// Pace values are in minutes.seconds format, so we convert to seconds first
-        /// </summary>
-        private double CalculateImprovementPercentage(double oldPace, double newPace)
-        {
-            if (oldPace <= 0)
-                return 0.0;
-
-            // Convert pace from minutes.seconds format to total seconds
-            var oldMinutes = Math.Floor(oldPace);
-            var oldSeconds = (oldPace - oldMinutes) * 100.0;
-            var oldPaceSeconds = (oldMinutes * 60.0) + oldSeconds;
-
-            var newMinutes = Math.Floor(newPace);
-            var newSeconds = (newPace - newMinutes) * 100.0;
-            var newPaceSeconds = (newMinutes * 60.0) + newSeconds;
-
-            if (oldPaceSeconds <= 0)
-                return 0.0;
-
-            return ((oldPaceSeconds - newPaceSeconds) / oldPaceSeconds) * 100.0;
         }
 
         /// <summary>

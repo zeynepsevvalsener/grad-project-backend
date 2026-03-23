@@ -1,5 +1,3 @@
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
 using FluentValidation;
 using GradProject.Application.DTOs.Gamification;
 using GradProject.Application.Interfaces.Gamification;
@@ -8,10 +6,9 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace GradProject.Api.Controllers
 {
-    [ApiController]
     [Route("api/v1/challenges")]
     [Authorize]
-    public class ChallengesController : ControllerBase
+    public class ChallengesController : ApiControllerBase
     {
         private readonly IChallengeService _service;
         private readonly IValidator<CreateChallengeRequestDto> _createValidator;
@@ -113,14 +110,6 @@ namespace GradProject.Api.Controllers
             }
         }
 
-        private int GetUserIdOrThrow()
-        {
-            var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
-            if (string.IsNullOrWhiteSpace(sub) || !int.TryParse(sub, out var userId))
-                throw new UnauthorizedAccessException("Invalid token.");
-
-            return userId;
-        }
     }
 }
 

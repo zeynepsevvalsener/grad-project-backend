@@ -1,3 +1,5 @@
+using GradProject.Application.Utilities;
+
 namespace GradProject.Application.DTOs.Leaderboard;
 
 /// <summary>
@@ -52,11 +54,8 @@ public class LeaderboardAggregateData
 
     /// <summary>
     /// Computed username: FirstName LastName if available, otherwise Email.
-    /// Trims whitespace from concatenated name.
     /// </summary>
-    public string Username => !string.IsNullOrEmpty(FirstName)
-        ? $"{FirstName} {LastName}".Trim()  // Use full name if FirstName exists
-        : Email;  // Fallback to email if no name available
+    public string Username => UserDisplayNameHelper.Resolve(FirstName, LastName, Email);
 
     /// <summary>
     /// Computed average pace in seconds per kilometer.

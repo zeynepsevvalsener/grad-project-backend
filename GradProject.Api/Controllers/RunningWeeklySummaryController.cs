@@ -1,5 +1,3 @@
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
 using GradProject.Application.DTOs.Running;
 using GradProject.Application.Interfaces.Running;
 using Microsoft.AspNetCore.Authorization;
@@ -10,10 +8,9 @@ namespace GradProject.Api.Controllers
     /// <summary>
     /// Weekly running aggregates (ISO week, Mon–Sun) derived from synced activities.
     /// </summary>
-    [ApiController]
     [Route("api/v1/running/weekly-summary")]
     [Authorize]
-    public class RunningWeeklySummaryController : ControllerBase
+    public class RunningWeeklySummaryController : ApiControllerBase
     {
         private readonly IWeeklyRunningSummaryService _weeklySummaryService;
 
@@ -47,15 +44,5 @@ namespace GradProject.Api.Controllers
             }
         }
 
-        private int GetUserIdOrThrow()
-        {
-            var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub)
-                      ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
-
-            if (string.IsNullOrWhiteSpace(sub) || !int.TryParse(sub, out var userId))
-                throw new UnauthorizedAccessException("Invalid token.");
-
-            return userId;
-        }
     }
 }

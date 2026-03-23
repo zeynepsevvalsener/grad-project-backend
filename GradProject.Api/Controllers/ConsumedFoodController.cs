@@ -1,18 +1,14 @@
-﻿using System.Security.Claims;
 using FluentValidation;
 using GradProject.Application.DTOs.Nutrition;
 using GradProject.Application.Interfaces.Nutrition;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using System.IdentityModel.Tokens.Jwt;
-
 
 namespace GradProject.Api.Controllers
 {
-    [ApiController]
     [Route("api/v1/consumed-food")]
     [Authorize]
-    public class ConsumedFoodController : ControllerBase
+    public class ConsumedFoodController : ApiControllerBase
     {
         private readonly IConsumedFoodService _service;
         private readonly IValidator<CreateConsumedFoodRequestDto> _createValidator;
@@ -80,13 +76,5 @@ namespace GradProject.Api.Controllers
             return ok ? NoContent() : NotFound();
         }
 
-        private int GetUserIdOrThrow()
-        {
-            var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
-            if (string.IsNullOrWhiteSpace(sub) || !int.TryParse(sub, out var userId))
-                throw new UnauthorizedAccessException("Invalid token.");
-
-            return userId;
-        }
     }
 }

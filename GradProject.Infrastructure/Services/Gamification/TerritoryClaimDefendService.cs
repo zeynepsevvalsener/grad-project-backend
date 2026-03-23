@@ -400,6 +400,16 @@ public class TerritoryClaimDefendService : ITerritoryClaimDefendService
         };
         _db.TerritoryOwnershipHistories.Add(history);
 
+        // Downgrade the previous owner's status from Owned → InProgress so the API
+        // no longer reports them as having an active claim on a territory they lost.
+        var previousOwnerProgress = await _db.UserTerritories
+            .FirstOrDefaultAsync(ut => ut.UserId == previousOwnerId && ut.TerritoryId == territory.Id, ct);
+        if (previousOwnerProgress != null && previousOwnerProgress.Status == TerritoryStatus.Owned)
+        {
+            previousOwnerProgress.Status = TerritoryStatus.InProgress;
+            previousOwnerProgress.OwnedAt = null;
+        }
+
         for (var attempt = 0; attempt <= MaxConcurrencyRetries; attempt++)
         {
             territory.CurrentOwnerUserId = newOwnerId;
