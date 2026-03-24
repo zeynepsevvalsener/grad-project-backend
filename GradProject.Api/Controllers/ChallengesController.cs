@@ -27,21 +27,24 @@ namespace GradProject.Api.Controllers
         [HttpGet]
         public async Task<ActionResult<IReadOnlyList<ChallengeResponseDto>>> GetAll(CancellationToken ct)
         {
-            var items = await _service.GetAllAsync(ct);
+            var userId = GetUserIdOrThrow();
+            var items = await _service.GetAllAsync(userId, ct);
             return Ok(items);
         }
 
         [HttpGet("active")]
         public async Task<ActionResult<IReadOnlyList<ChallengeResponseDto>>> GetActive(CancellationToken ct)
         {
-            var items = await _service.GetActiveAsync(ct);
+            var userId = GetUserIdOrThrow();
+            var items = await _service.GetActiveAsync(userId, ct);
             return Ok(items);
         }
 
         [HttpGet("{id:int}")]
         public async Task<ActionResult<ChallengeResponseDto>> GetById(int id, CancellationToken ct)
         {
-            var challenge = await _service.GetByIdAsync(id, ct);
+            var userId = GetUserIdOrThrow();
+            var challenge = await _service.GetByIdAsync(id, userId, ct);
             return challenge == null ? NotFound() : Ok(challenge);
         }
 

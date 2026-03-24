@@ -19,11 +19,19 @@ namespace GradProject.Infrastructure.Services
 
         public StravaApiService(IConfiguration configuration)
         {
-            _clientId = configuration["STRAVA_CLIENT_ID"];
-            _clientSecret = configuration["STRAVA_CLIENT_SECRET"];
-            _redirectUri = configuration["STRAVA_REDIRECT_URI"];
+            static string TrimEnv(string? v) => (v ?? string.Empty).Trim().Trim('"', '\'');
+
+            _clientId = TrimEnv(configuration["STRAVA_CLIENT_ID"]);
+            _clientSecret = TrimEnv(configuration["STRAVA_CLIENT_SECRET"]);
+            _redirectUri = TrimEnv(configuration["STRAVA_REDIRECT_URI"]);
             _httpClient = new HttpClient();
         }
+
+        /// <summary>True when Strava OAuth env vars are present (used for clear API errors in dev).</summary>
+        public bool IsOAuthConfigured =>
+            !string.IsNullOrWhiteSpace(_clientId)
+            && !string.IsNullOrWhiteSpace(_clientSecret)
+            && !string.IsNullOrWhiteSpace(_redirectUri);
 
         public string GetAuthorizeUrl(string userId)
         {

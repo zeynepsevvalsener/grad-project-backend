@@ -89,18 +89,6 @@ public class LeaderboardService : ILeaderboardService
             throw new KeyNotFoundException($"Challenge with ID {challengeId} not found");
         }
 
-        // If userId provided, verify user is participating in the challenge
-        if (userId.HasValue)
-        {
-            var userParticipates = await _db.UserChallenges
-                .AnyAsync(uc => uc.ChallengeId == challengeId && uc.UserId == userId.Value, ct);
-            
-            if (!userParticipates)
-            {
-                throw new KeyNotFoundException($"User {userId.Value} is not participating in challenge {challengeId}");
-            }
-        }
-
         // Apply default values for pagination
         page = page == 0 ? 1 : page;
         pageSize = pageSize == 0 ? 20 : pageSize;

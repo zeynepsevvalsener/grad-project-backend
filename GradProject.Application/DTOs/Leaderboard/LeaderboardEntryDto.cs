@@ -26,7 +26,7 @@ public class LeaderboardEntryDto
     public string Username { get; set; } = null!;
 
     /// <summary>
-    /// Territory score (2 decimal places). Null if not applicable.
+    /// Accumulated territory action points (sum of claim/defend/transfer scores from runs) in the leaderboard scope.
     /// </summary>
     [JsonPropertyName("territoryScore")]
     public double? TerritoryScore { get; set; }

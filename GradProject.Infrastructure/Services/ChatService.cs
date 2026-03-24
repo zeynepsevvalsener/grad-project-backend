@@ -1,4 +1,4 @@
-﻿using GradProject.Application.DTOs.Chat;
+using GradProject.Application.DTOs.Chat;
 using GradProject.Application.Interfaces;
 using GradProject.Application.Interfaces.Gamification;
 using GradProject.Application.Interfaces.Nutrition;
@@ -143,7 +143,7 @@ namespace GradProject.Infrastructure.Services
 
                 case "challenges":
                     {
-                        var challenges = await _challengeService.GetActiveAsync(ct);
+                        var challenges = await _challengeService.GetActiveAsync(userId, ct);
                         var summary = await _weeklySummaryService
                             .GetWeeklySummaryAsync(userId, isoYear, isoWeek, false, ct);
 

@@ -28,7 +28,7 @@ public class LeaderboardAggregateData
     /// <summary>User's last name (nullable)</summary>
     public string? LastName { get; set; }
 
-    /// <summary>Territory score from UserChallenge entity</summary>
+    /// <summary>Sum of territory ownership action scores (claim/defend/transfer) in the query window.</summary>
     public double? TerritoryScore { get; set; }
 
     /// <summary>Count of active territories where this user is current owner (map ownership).</summary>

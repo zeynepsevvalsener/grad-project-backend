@@ -19,9 +19,9 @@ namespace GradProject.Infrastructure.Services.Gamification
             _cache = cache;
         }
 
-        public async Task<IReadOnlyList<ChallengeResponseDto>> GetAllAsync(CancellationToken ct = default)
+        public async Task<IReadOnlyList<ChallengeResponseDto>> GetAllAsync(int? userId = null, CancellationToken ct = default)
         {
-            return (await _cache.GetOrCreateAsync("challenges:all", async e =>
+            var cached = (await _cache.GetOrCreateAsync("challenges:all", async e =>
             {
                 e.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);
                 var challenges = await _db.Challenges
@@ -30,29 +30,37 @@ namespace GradProject.Infrastructure.Services.Gamification
                     .ToListAsync(ct);
                 return challenges.Select(c => MapToResponseDto(c)).ToList();
             }))!;
+            return await CloneDtosAndApplyParticipationAsync(cached, userId, ct);
         }
 
-        public async Task<ChallengeResponseDto?> GetByIdAsync(int id, CancellationToken ct = default)
+        public async Task<ChallengeResponseDto?> GetByIdAsync(int id, int? userId = null, CancellationToken ct = default)
         {
             var challenge = await _db.Challenges
                 .AsNoTracking()
                 .FirstOrDefaultAsync(c => c.Id == id, ct);
 
-            return challenge == null ? null : MapToResponseDto(challenge);
+            if (challenge == null)
+                return null;
+
+            var dto = MapToResponseDto(challenge);
+            if (userId.HasValue)
+                await ApplyParticipationAsync(dto, userId.Value, ct);
+            return dto;
         }
 
-        public async Task<IReadOnlyList<ChallengeResponseDto>> GetActiveAsync(CancellationToken ct = default)
+        public async Task<IReadOnlyList<ChallengeResponseDto>> GetActiveAsync(int? userId = null, CancellationToken ct = default)
         {
-            return (await _cache.GetOrCreateAsync("challenges:active", async e =>
+            var cached = (await _cache.GetOrCreateAsync("challenges:active", async e =>
             {
                 e.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);
                 var challenges = await _db.Challenges
-                .AsNoTracking()
-                .Where(c => c.IsActive)
+                    .AsNoTracking()
+                    .Where(c => c.IsActive)
                     .OrderByDescending(c => c.Id)
                     .ToListAsync(ct);
                 return challenges.Select(c => MapToResponseDto(c)).ToList();
             }))!;
+            return await CloneDtosAndApplyParticipationAsync(cached, userId, ct);
         }
 
         public async Task<ChallengeResponseDto> CreateAsync(CreateChallengeRequestDto request, CancellationToken ct = default)
@@ -180,24 +188,91 @@ namespace GradProject.Infrastructure.Services.Gamification
             return MapToJoinResponseDto(userChallenge);
         }
 
+        private async Task<IReadOnlyList<ChallengeResponseDto>> CloneDtosAndApplyParticipationAsync(
+            List<ChallengeResponseDto> cached,
+            int? userId,
+            CancellationToken ct)
+        {
+            var list = cached.Select(CloneChallengeDto).ToList();
+            if (!userId.HasValue || list.Count == 0)
+                return list;
+
+            var ids = list.Select(c => c.Id).ToList();
+            var rows = await _db.UserChallenges
+                .AsNoTracking()
+                .Where(uc => uc.UserId == userId.Value && ids.Contains(uc.ChallengeId))
+                .ToListAsync(ct);
+
+            foreach (var dto in list)
+            {
+                var uc = rows.FirstOrDefault(r => r.ChallengeId == dto.Id);
+                if (uc != null)
+                    ApplyParticipationFields(dto, uc);
+            }
+
+            return list;
+        }
+
+        private async Task ApplyParticipationAsync(ChallengeResponseDto dto, int userId, CancellationToken ct)
+        {
+            var uc = await _db.UserChallenges
+                .AsNoTracking()
+                .FirstOrDefaultAsync(r => r.UserId == userId && r.ChallengeId == dto.Id, ct);
+            if (uc != null)
+                ApplyParticipationFields(dto, uc);
+        }
+
+        private static void ApplyParticipationFields(ChallengeResponseDto dto, UserChallenge uc)
+        {
+            dto.IsParticipating = true;
+            dto.JoinedAt = uc.JoinedAt;
+            dto.Completed = uc.Completed;
+            dto.CompletedAt = uc.CompletedAt;
+            dto.ProgressDistanceMeters = uc.ProgressDistanceMeters;
+            dto.ProgressCalories = uc.ProgressCalories;
+            dto.ProgressPercent = ComputeProgressPercent(
+                dto.Metric, dto.TargetValue, uc.ProgressDistanceMeters, uc.ProgressCalories);
+        }
+
+        private static ChallengeResponseDto CloneChallengeDto(ChallengeResponseDto c) => new()
+        {
+            Id = c.Id,
+            Title = c.Title,
+            Description = c.Description,
+            Type = c.Type,
+            TypeName = c.TypeName,
+            Metric = c.Metric,
+            MetricName = c.MetricName,
+            TargetValue = c.TargetValue,
+            StartDate = c.StartDate,
+            EndDate = c.EndDate,
+            RewardPoints = c.RewardPoints,
+            IsActive = c.IsActive
+        };
+
+        private static double ComputeProgressPercent(
+            ChallengeMetric metric,
+            double targetValue,
+            long progressDistanceMeters,
+            int progressCalories)
+        {
+            if (targetValue <= 0)
+                return 0;
+            if (metric == ChallengeMetric.Distance)
+                return Math.Min(100, progressDistanceMeters / targetValue * 100);
+            if (metric == ChallengeMetric.Calories)
+                return Math.Min(100, progressCalories / targetValue * 100);
+            return 0;
+        }
+
         private static JoinChallengeResponseDto MapToJoinResponseDto(UserChallenge userChallenge)
         {
             var targetValue = userChallenge.Challenge.TargetValue;
-            double progressPercent = 0;
-
-            // Calculate progress percent based on challenge metric
-            if (userChallenge.Challenge.Metric == Domain.Enums.ChallengeMetric.Distance)
-            {
-                progressPercent = targetValue > 0
-                    ? Math.Min(100, (userChallenge.ProgressDistanceMeters / targetValue) * 100)
-                    : 0;
-            }
-            else if (userChallenge.Challenge.Metric == Domain.Enums.ChallengeMetric.Calories)
-            {
-                progressPercent = targetValue > 0
-                    ? Math.Min(100, (userChallenge.ProgressCalories / targetValue) * 100)
-                    : 0;
-            }
+            var progressPercent = ComputeProgressPercent(
+                userChallenge.Challenge.Metric,
+                targetValue,
+                userChallenge.ProgressDistanceMeters,
+                userChallenge.ProgressCalories);
 
             return new JoinChallengeResponseDto
             {
