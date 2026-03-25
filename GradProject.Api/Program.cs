@@ -3,9 +3,11 @@ using FluentValidation;
 using GradProject.Api.Models;
 using GradProject.Api.Middlewares;
 using GradProject.Api.Options;
+using GradProject.Api.Validation;
 using GradProject.Api.HostedServices;
 using GradProject.Application.Interfaces;
 using GradProject.Application.Interfaces.Gamification;
+using GradProject.Application.Options;
 using GradProject.Application.Interfaces.Leaderboard;
 using GradProject.Application.Interfaces.Nutrition;
 using GradProject.Application.Interfaces.Nutrition.AI;
@@ -28,6 +30,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Text;
@@ -94,6 +97,7 @@ builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<TerritoryAchievementService>();
 builder.Services.AddScoped<ITerritoryScoreEngine, TerritoryScoreEngine>();
 builder.Services.AddScoped<ITerritoryClaimDefendService, TerritoryClaimDefendService>();
+builder.Services.AddScoped<ITerritoryCatalogService, TerritoryCatalogService>();
 builder.Services.AddScoped<IBadgeService, BadgeService>();
 builder.Services.AddScoped<IBadgeEvaluationService, BadgeEvaluationService>();
 builder.Services.AddScoped<IRunningAnalyticsService, RunningAnalyticsService>();
@@ -117,6 +121,11 @@ builder.Services.AddScoped<RankingEngine>();
 builder.Services.AddScoped<LeaderboardAggregator>();
 builder.Services.Configure<LeaderboardRefreshOptions>(
     builder.Configuration.GetSection(LeaderboardRefreshOptions.SectionName));
+builder.Services
+    .AddOptions<TerritoryCatalogCacheOptions>()
+    .BindConfiguration(TerritoryCatalogCacheOptions.SectionName)
+    .ValidateOnStart();
+builder.Services.AddSingleton<IValidateOptions<TerritoryCatalogCacheOptions>, TerritoryCatalogCacheBindingValidator>();
 builder.Services.AddHostedService<LeaderboardDailyRefreshJob>();
 
 //  Exception middleware DI

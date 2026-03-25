@@ -1,5 +1,3 @@
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using GradProject.Application.DTOs.Running;
@@ -7,10 +5,9 @@ using GradProject.Application.Interfaces.Running;
 
 namespace GradProject.Api.Controllers
 {
-    [ApiController]
     [Route("api/v1/running/analytics")]
     [Authorize]
-    public class RunningAnalyticsController : ControllerBase
+    public class RunningAnalyticsController : ApiControllerBase
     {
         private readonly IRunningAnalyticsService _analyticsService;
 
@@ -43,16 +40,6 @@ namespace GradProject.Api.Controllers
             return Ok(heartRateTrend);
         }
 
-        private int GetUserIdOrThrow()
-        {
-            var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub)
-                      ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
-
-            if (string.IsNullOrWhiteSpace(sub) || !int.TryParse(sub, out var userId))
-                throw new UnauthorizedAccessException("Invalid token.");
-
-            return userId;
-        }
     }
 }
 

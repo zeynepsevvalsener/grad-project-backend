@@ -1,5 +1,3 @@
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
 using GradProject.Application.DTOs.Gamification;
 using GradProject.Application.Interfaces.Gamification;
 using Microsoft.AspNetCore.Authorization;
@@ -10,20 +8,47 @@ namespace GradProject.Api.Controllers;
 /// <summary>
 /// HLN-8: Claim and defend territory ownership by run.
 /// </summary>
-[ApiController]
 [Route("api/v1/territory")]
 [Authorize]
-public class TerritoryController : ControllerBase
+public class TerritoryController : ApiControllerBase
 {
     private readonly ITerritoryClaimDefendService _claimDefendService;
+    private readonly ITerritoryCatalogService _catalogService;
     private readonly ILogger<TerritoryController> _logger;
 
     public TerritoryController(
         ITerritoryClaimDefendService claimDefendService,
+        ITerritoryCatalogService catalogService,
         ILogger<TerritoryController> logger)
     {
         _claimDefendService = claimDefendService;
+        _catalogService = catalogService;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// All territories with geometry cells and current owner (public catalog).
+    /// </summary>
+    [HttpGet]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(IReadOnlyList<TerritoryCatalogItemDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<IReadOnlyList<TerritoryCatalogItemDto>>> GetCatalog(CancellationToken ct = default)
+    {
+        var items = await _catalogService.GetCatalogAsync(ct);
+        return Ok(items);
+    }
+
+    /// <summary>
+    /// Current user&apos;s progress for every territory (defaults to Locked / 0% when no row exists).
+    /// </summary>
+    [HttpGet("me")]
+    [ProducesResponseType(typeof(IReadOnlyList<MyTerritoryProgressRowDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<IReadOnlyList<MyTerritoryProgressRowDto>>> GetMyProgress(CancellationToken ct = default)
+    {
+        var userId = GetUserIdOrThrow();
+        var rows = await _catalogService.GetMyProgressAsync(userId, ct);
+        return Ok(rows);
     }
 
     /// <summary>
@@ -48,13 +73,17 @@ public class TerritoryController : ControllerBase
         if (request.TerritoryIds == null || request.TerritoryIds.Count == 0)
             return BadRequest(new { reason = "TERRITORY_IDS_REQUIRED" });
 
+        var internalIds = await _catalogService.ResolvePublicIdsAsync(request.TerritoryIds, ct);
+        if (internalIds.Count == 0)
+            return BadRequest(new { reason = "TERRITORY_IDS_NOT_FOUND" });
+
         try
         {
-            var result = await _claimDefendService.ClaimAsync(
-                userId,
-                request.RunId,
-                request.TerritoryIds,
-                ct);
+            var result = await _claimDefendService.ClaimAsync(userId, request.RunId, internalIds, ct);
+
+            if (result.ClaimedTerritories.Count > 0)
+                _catalogService.InvalidateCatalogCache();
+
             return Ok(result);
         }
         catch (InvalidOperationException ex) when (ex.Message == "RUN_NOT_FOUND")
@@ -89,13 +118,17 @@ public class TerritoryController : ControllerBase
         if (request.TerritoryIds == null || request.TerritoryIds.Count == 0)
             return BadRequest(new { reason = "TERRITORY_IDS_REQUIRED" });
 
+        var internalIds = await _catalogService.ResolvePublicIdsAsync(request.TerritoryIds, ct);
+        if (internalIds.Count == 0)
+            return BadRequest(new { reason = "TERRITORY_IDS_NOT_FOUND" });
+
         try
         {
-            var result = await _claimDefendService.DefendAsync(
-                userId,
-                request.RunId,
-                request.TerritoryIds,
-                ct);
+            var result = await _claimDefendService.DefendAsync(userId, request.RunId, internalIds, ct);
+
+            if (result.DefendedTerritories.Count > 0)
+                _catalogService.InvalidateCatalogCache();
+
             return Ok(result);
         }
         catch (InvalidOperationException ex) when (ex.Message == "RUN_NOT_FOUND")
@@ -108,14 +141,4 @@ public class TerritoryController : ControllerBase
         }
     }
 
-    private int GetUserIdOrThrow()
-    {
-        var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub)
-                  ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
-
-        if (string.IsNullOrWhiteSpace(sub) || !int.TryParse(sub, out var userId))
-            throw new UnauthorizedAccessException("Invalid token.");
-
-        return userId;
-    }
 }

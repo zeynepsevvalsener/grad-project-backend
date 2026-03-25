@@ -1,5 +1,3 @@
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
 using GradProject.Application.DTOs.Running;
 using GradProject.Application.Interfaces.Running;
 using Microsoft.AspNetCore.Authorization;
@@ -7,10 +5,9 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace GradProject.Api.Controllers
 {
-    [ApiController]
     [Route("api/v1/runs")]
     [Authorize]
-    public class RunsController : ControllerBase
+    public class RunsController : ApiControllerBase
     {
         private readonly IRouteService _routeService;
 
@@ -117,16 +114,6 @@ namespace GradProject.Api.Controllers
         }
 
 
-        private int GetUserIdOrThrow()
-        {
-            var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub)
-                      ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
-
-            if (string.IsNullOrWhiteSpace(sub) || !int.TryParse(sub, out var userId))
-                throw new UnauthorizedAccessException("Invalid token.");
-
-            return userId;
-        }
     }
 }
 

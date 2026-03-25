@@ -10,10 +10,9 @@ namespace GradProject.Api.Controllers;
 /// <summary>
 /// Controller for leaderboard operations in challenges.
 /// </summary>
-[ApiController]
 [Route("api/v1/challenges")]
 [Authorize]
-public class LeaderboardController : ControllerBase
+public class LeaderboardController : ApiControllerBase
 {
     private readonly ILeaderboardService _leaderboardService;
     private readonly ILogger<LeaderboardController> _logger;

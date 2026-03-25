@@ -1,5 +1,3 @@
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
 using FluentValidation;
 using GradProject.Application.DTOs.Gamification;
 using GradProject.Application.Interfaces.Gamification;
@@ -8,10 +6,9 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace GradProject.Api.Controllers
 {
-    [ApiController]
     [Route("api/v1/badges")]
     [Authorize]
-    public class BadgesController : ControllerBase
+    public class BadgesController : ApiControllerBase
     {
         private readonly IBadgeService _service;
         private readonly IValidator<CreateBadgeRequestDto> _createValidator;
@@ -100,13 +97,6 @@ namespace GradProject.Api.Controllers
             return ok ? NoContent() : NotFound();
         }
 
-        private int GetUserIdOrThrow()
-        {
-            var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
-            if (string.IsNullOrWhiteSpace(sub) || !int.TryParse(sub, out var userId))
-                throw new UnauthorizedAccessException("Invalid token.");
-            return userId;
-        }
     }
 }
 

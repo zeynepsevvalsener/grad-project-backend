@@ -5,17 +5,13 @@ using GradProject.Application.Interfaces;
 using GradProject.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
-
 
 namespace GradProject.Api.Controllers
 {
-    [ApiController]
     [Route("api/v1/profile")]
     [Authorize]
-    public class ProfileController : ControllerBase
+    public class ProfileController : ApiControllerBase
     {
         private readonly IProfileService _profileService;
         private readonly IValidator<UpsertMyProfileRequestDto> _profileValidator;
@@ -54,17 +50,6 @@ namespace GradProject.Api.Controllers
         }
     
 
-
-        private int GetUserIdOrThrow()
-        {
-            var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub)
-                      ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
-
-            if (string.IsNullOrWhiteSpace(sub) || !int.TryParse(sub, out var userId))
-                throw new UnauthorizedAccessException("Invalid token.");
-
-            return userId;
-        }
 
         [HttpPut("language")]
         public async Task<ActionResult<TokenRefreshResponseDto>> UpdateMyLanguage(

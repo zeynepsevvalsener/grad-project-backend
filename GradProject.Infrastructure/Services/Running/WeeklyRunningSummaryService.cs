@@ -1,6 +1,7 @@
 using System.Globalization;
 using GradProject.Application.DTOs.Running;
 using GradProject.Application.Interfaces.Running;
+using GradProject.Application.Utilities;
 using GradProject.Domain.Entities;
 using GradProject.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -121,12 +122,7 @@ namespace GradProject.Infrastructure.Services.Running
                 ? Math.Round(hrRuns.Average(r => r.AverageHeartRate!.Value), 2, MidpointRounding.AwayFromZero)
                 : null;
 
-            var pace = 0.0;
-            if (totalDistance > 0 && totalMoving > 0)
-            {
-                var secondsPerKm = (totalMoving / totalDistance) * 1000.0;
-                pace = SecondsPerKmToPaceMinutes(secondsPerKm);
-            }
+            var pace = RunningPaceCalculator.FromDistanceAndTime(totalDistance, totalMoving);
 
             var longest = runs.Count > 0 ? runs.Max(r => r.DistanceMeters) : 0.0;
 
@@ -163,18 +159,5 @@ namespace GradProject.Infrastructure.Services.Running
             };
         }
 
-        private static double SecondsPerKmToPaceMinutes(double totalSecondsPerKm)
-        {
-            var minutes = Math.Floor(totalSecondsPerKm / 60.0);
-            var seconds = totalSecondsPerKm % 60.0;
-            if (seconds >= 60.0)
-            {
-                minutes += Math.Floor(seconds / 60.0);
-                seconds %= 60.0;
-            }
-
-            var pace = minutes + seconds / 100.0;
-            return Math.Round(pace, 2, MidpointRounding.AwayFromZero);
-        }
     }
 }

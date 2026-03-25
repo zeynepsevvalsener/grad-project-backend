@@ -10,35 +10,14 @@ public class PolylineDecoderTests
     [Fact]
     public void Decode_ValidPolyline_ReturnsCoordinates()
     {
-        // Known test vector: "`~oia@" encodes to (38.5, -120.2)
-        // This is a simple polyline encoding from Google's documentation
-        // Encoded: "`~oia@" decodes to approximately (38.5, -120.2)
-        var encoded = "`~oia@";
-        
+        // "_p~iF~ps|U" is the canonical single-point encoding of (38.5, -120.2)
+        // from Google's Encoded Polyline Algorithm documentation.
+        var encoded = "_p~iF~ps|U";
+
         var result = _decoder.Decode(encoded);
 
         Assert.NotNull(result);
         Assert.Single(result);
-        
-        // Debug: Print actual values
-        var actualLat = result[0].lat;
-        var actualLng = result[0].lng;
-        var expectedLat = 38.5;
-        var expectedLng = -120.2;
-        
-        // Allow tolerance of 0.00001 as specified
-        var latDiff = Math.Abs(actualLat - expectedLat);
-        var lngDiff = Math.Abs(actualLng - expectedLng);
-        
-        // If test fails, show actual vs expected
-        if (latDiff >= 0.00001 || lngDiff >= 0.00001)
-        {
-            Assert.True(false, 
-                $"Expected: lat={expectedLat}, lng={expectedLng}. " +
-                $"Actual: lat={actualLat}, lng={actualLng}. " +
-                $"Diff: lat={latDiff}, lng={lngDiff}");
-        }
-        
         Assert.True(Math.Abs(result[0].lat - 38.5) < 0.00001);
         Assert.True(Math.Abs(result[0].lng - -120.2) < 0.00001);
     }
@@ -46,15 +25,18 @@ public class PolylineDecoderTests
     [Fact]
     public void Decode_MultiplePoints_ReturnsAllCoordinates()
     {
-        // Test polyline with multiple points
-        // This encodes a path with several coordinates
-        // Using a known valid polyline: "~p|F_p~P" (approximate path)
-        var encoded = "~p|F_p~P";
-        
+        // "_p~iF~ps|U_ulLnnqC" encodes two points from Google's algorithm example:
+        // (38.5, -120.2) and (40.7, -120.95).
+        var encoded = "_p~iF~ps|U_ulLnnqC";
+
         var result = _decoder.Decode(encoded);
 
         Assert.NotNull(result);
-        Assert.True(result.Count >= 2);
+        Assert.Equal(2, result.Count);
+        Assert.True(Math.Abs(result[0].lat - 38.5) < 0.00001);
+        Assert.True(Math.Abs(result[0].lng - -120.2) < 0.00001);
+        Assert.True(Math.Abs(result[1].lat - 40.7) < 0.00001);
+        Assert.True(Math.Abs(result[1].lng - -120.95) < 0.00001);
     }
 
     [Fact]
@@ -138,19 +120,16 @@ public class PolylineDecoderTests
     [Fact]
     public void Decode_Precision_MatchesExpectedTolerance()
     {
-        // Test that decoded coordinates maintain 5-decimal precision
-        // Using a known encoding that should decode to specific values
-        var encoded = "`~oia@";
-        
+        // Verifies that the decoder divides raw values by 1e5 (5-decimal precision).
+        // "_p~iF~ps|U" encodes (38.5, -120.2); the raw integers are 3850000 and -12020000.
+        var encoded = "_p~iF~ps|U";
+
         var result = _decoder.Decode(encoded);
 
         Assert.NotNull(result);
         var (lat, lng) = result[0];
-        
-        // Check that values are properly divided by 1e5 (5-decimal precision)
-        // The decoded values should be reasonable coordinates
-        Assert.True(Math.Abs(lat) < 90);
-        Assert.True(Math.Abs(lng) < 180);
+        Assert.True(Math.Abs(lat - 38.5) < 0.00001, $"Expected ~38.5, got {lat}");
+        Assert.True(Math.Abs(lng - -120.2) < 0.00001, $"Expected ~-120.2, got {lng}");
     }
 }
 

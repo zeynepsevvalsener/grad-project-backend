@@ -1,3 +1,5 @@
+using GradProject.Application.Utilities;
+
 namespace GradProject.Application.DTOs.Leaderboard;
 
 /// <summary>
@@ -26,7 +28,7 @@ public class LeaderboardAggregateData
     /// <summary>User's last name (nullable)</summary>
     public string? LastName { get; set; }
 
-    /// <summary>Territory score from UserChallenge entity</summary>
+    /// <summary>Sum of territory ownership action scores (claim/defend/transfer) in the query window.</summary>
     public double? TerritoryScore { get; set; }
 
     /// <summary>Count of active territories where this user is current owner (map ownership).</summary>
@@ -52,11 +54,8 @@ public class LeaderboardAggregateData
 
     /// <summary>
     /// Computed username: FirstName LastName if available, otherwise Email.
-    /// Trims whitespace from concatenated name.
     /// </summary>
-    public string Username => !string.IsNullOrEmpty(FirstName)
-        ? $"{FirstName} {LastName}".Trim()  // Use full name if FirstName exists
-        : Email;  // Fallback to email if no name available
+    public string Username => UserDisplayNameHelper.Resolve(FirstName, LastName, Email);
 
     /// <summary>
     /// Computed average pace in seconds per kilometer.

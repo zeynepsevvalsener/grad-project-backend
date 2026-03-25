@@ -36,7 +36,9 @@ public class RankingEngine
             Rank = index + 1,
             UserId = entry.UserId,
             Username = entry.Username,
-            TerritoryScore = entry.TerritoryScore,
+            TerritoryScore = entry.TerritoryScore.HasValue
+                ? Math.Round(entry.TerritoryScore.Value, 2)
+                : null,
             TerritoryCount = entry.TerritoryCount,
             TotalDistance = (long)entry.TotalDistance,
             AveragePace = Math.Round(entry.AveragePace, 2),

@@ -1,4 +1,4 @@
-﻿using GradProject.Application.DTOs.Nutrition;
+using GradProject.Application.DTOs.Nutrition;
 using GradProject.Application.DTOs.Nutrition.AI;
 using GradProject.Application.Interfaces;
 using GradProject.Application.Interfaces.Nutrition;
@@ -8,15 +8,12 @@ using GradProject.Infrastructure.Services.Nutrition;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
 
 namespace GradProject.Api.Controllers
 {
-    [ApiController]
     [Route("api/v1/nutrition")]
     [Authorize]
-    public class NutritionController : ControllerBase
+    public class NutritionController : ApiControllerBase
     {
         private readonly INutritionCalculationService _nutritionCalculationService;
         private readonly INutritionTargetsService _nutritionTargetsService;
@@ -206,15 +203,6 @@ namespace GradProject.Api.Controllers
             if (hour >= 16 && hour < 22) return Domain.Enums.MealType.DINNER;
 
             return Domain.Enums.MealType.SNACK;
-        }
-
-        private int GetUserIdOrThrow()
-        {
-            var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
-            if (string.IsNullOrWhiteSpace(sub) || !int.TryParse(sub, out var userId))
-                throw new UnauthorizedAccessException("Invalid token.");
-
-            return userId;
         }
 
         private string? GetLangFromHeader()

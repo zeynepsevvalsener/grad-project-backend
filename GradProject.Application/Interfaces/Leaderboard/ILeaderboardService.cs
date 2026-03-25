@@ -25,10 +25,10 @@ public interface ILeaderboardService
     /// <param name="challengeId">The ID of the challenge</param>
     /// <param name="page">Page number (1-based)</param>
     /// <param name="pageSize">Number of entries per page</param>
-    /// <param name="userId">Optional user ID to include in response regardless of pagination</param>
+    /// <param name="userId">Optional viewer user ID; when set, <see cref="LeaderboardResponseDto.CurrentUserEntry"/> is filled if that user appears in the ranked list. Non-participants may be passed; entry stays null.</param>
     /// <param name="limit">Optional limit to retrieve only top N users</param>
     /// <param name="ct">Cancellation token</param>
-    /// <returns>Leaderboard response with entries, pagination metadata, and optional current user entry</returns>
+    /// <returns>Leaderboard response with entries, pagination metadata, and current user entry when applicable</returns>
     Task<LeaderboardResponseDto> GetLeaderboardAsync(
         int challengeId,
         int page,

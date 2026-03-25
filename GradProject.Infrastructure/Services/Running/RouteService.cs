@@ -35,10 +35,7 @@ namespace GradProject.Infrastructure.Services.Running
         {
             try
             {
-                var activity = await _db.RunningActivities
-                    .AsNoTracking()
-                    .FirstOrDefaultAsync(r => r.Id == runId && r.UserId == userId, ct);
-
+                var activity = await FindOwnedActivityAsync(runId, userId, asNoTracking: true, ct);
                 if (activity == null)
                 {
                     _logger.LogWarning("Running activity {RunId} not found or doesn't belong to user {UserId}", runId, userId);
@@ -64,11 +61,9 @@ namespace GradProject.Infrastructure.Services.Running
         {
             try
             {
-                var exists = await _db.RunningActivities
+                return await _db.RunningActivities
                     .AsNoTracking()
                     .AnyAsync(r => r.Id == runId && r.UserId == userId, ct);
-                
-                return exists;
             }
             catch (Exception ex)
             {
@@ -163,27 +158,11 @@ namespace GradProject.Infrastructure.Services.Running
         {
             try
             {
-                var activity = await _db.RunningActivities
-                    .AsNoTracking()
-                    .FirstOrDefaultAsync(r => r.Id == runId && r.UserId == userId, ct);
-
+                var activity = await FindOwnedActivityAsync(runId, userId, asNoTracking: true, ct);
                 if (activity == null)
                 {
                     _logger.LogWarning("Running activity {RunId} not found or doesn't belong to user {UserId}", runId, userId);
                     return null;
-                }
-
-                if (activity.MinLat == null || activity.MaxLat == null ||
-                    activity.MinLng == null || activity.MaxLng == null)
-                {
-                    return new BoundingBoxMetadataDto
-                    {
-                        RunId = activity.Id,
-                        RunName = activity.Name,
-                        HasRoute = activity.Route != null,
-                        BoundingBox = null,
-                        Validation = null
-                    };
                 }
 
                 return new BoundingBoxMetadataDto
@@ -191,23 +170,15 @@ namespace GradProject.Infrastructure.Services.Running
                     RunId = activity.Id,
                     RunName = activity.Name,
                     HasRoute = activity.Route != null,
-                    BoundingBox = new BoundingBoxInfoDto
-                    {
-                        MinLat = activity.MinLat.Value,
-                        MaxLat = activity.MaxLat.Value,
-                        MinLng = activity.MinLng.Value,
-                        MaxLng = activity.MaxLng.Value,
-                        CenterLat = (activity.MinLat.Value + activity.MaxLat.Value) / 2.0,
-                        CenterLng = (activity.MinLng.Value + activity.MaxLng.Value) / 2.0,
-                        Width = activity.MaxLng.Value - activity.MinLng.Value,
-                        Height = activity.MaxLat.Value - activity.MinLat.Value
-                    },
-                    Validation = new BoundingBoxValidationDto
-                    {
-                        IsValid = activity.MinLat.Value <= activity.MaxLat.Value && activity.MinLng.Value <= activity.MaxLng.Value,
-                        MinLatLessThanMaxLat = activity.MinLat.Value <= activity.MaxLat.Value,
-                        MinLngLessThanMaxLng = activity.MinLng.Value <= activity.MaxLng.Value
-                    }
+                    BoundingBox = BuildBoundingBoxInfo(activity),
+                    Validation = activity.MinLat.HasValue
+                        ? new BoundingBoxValidationDto
+                        {
+                            IsValid = activity.MinLat.Value <= activity.MaxLat!.Value && activity.MinLng!.Value <= activity.MaxLng!.Value,
+                            MinLatLessThanMaxLat = activity.MinLat.Value <= activity.MaxLat.Value,
+                            MinLngLessThanMaxLng = activity.MinLng!.Value <= activity.MaxLng!.Value
+                        }
+                        : null
                 };
             }
             catch (Exception ex)
@@ -221,8 +192,7 @@ namespace GradProject.Infrastructure.Services.Running
         {
             try
             {
-                var activity = await _db.RunningActivities
-                    .FirstOrDefaultAsync(r => r.Id == runId && r.UserId == userId, ct);
+                var activity = await FindOwnedActivityAsync(runId, userId, asNoTracking: false, ct);
 
                 if (activity == null)
                 {
@@ -281,20 +251,7 @@ namespace GradProject.Infrastructure.Services.Running
                     RunId = activity.Id,
                     RunName = activity.Name,
                     Message = "Region metadata backfilled successfully",
-                    BoundingBox = hasBbox && activity.MinLat.HasValue && activity.MaxLat.HasValue &&
-                                 activity.MinLng.HasValue && activity.MaxLng.HasValue
-                        ? new BoundingBoxInfoDto
-                        {
-                            MinLat = activity.MinLat.Value,
-                            MaxLat = activity.MaxLat.Value,
-                            MinLng = activity.MinLng.Value,
-                            MaxLng = activity.MaxLng.Value,
-                            CenterLat = (activity.MinLat.Value + activity.MaxLat.Value) / 2.0,
-                            CenterLng = (activity.MinLng.Value + activity.MaxLng.Value) / 2.0,
-                            Width = activity.MaxLng.Value - activity.MinLng.Value,
-                            Height = activity.MaxLat.Value - activity.MinLat.Value
-                        }
-                        : null,
+                    BoundingBox = hasBbox ? BuildBoundingBoxInfo(activity) : null,
                     ConvexHull = hasConvexHull && activity.ConvexHull != null
                         ? new ConvexHullInfoDto
                         {
@@ -311,6 +268,37 @@ namespace GradProject.Infrastructure.Services.Running
                 _logger.LogError(ex, "Error backfilling bounding box for run {RunId} and user {UserId}", runId, userId);
                 return null;
             }
+        }
+
+        // ────────────────────────────────────────────────
+        // Private helpers
+        // ────────────────────────────────────────────────
+
+        private Task<RunningActivity?> FindOwnedActivityAsync(int runId, int userId, bool asNoTracking, CancellationToken ct)
+        {
+            var query = _db.RunningActivities.Where(r => r.Id == runId && r.UserId == userId);
+            if (asNoTracking)
+                query = query.AsNoTracking();
+            return query.FirstOrDefaultAsync(ct);
+        }
+
+        private static BoundingBoxInfoDto? BuildBoundingBoxInfo(RunningActivity activity)
+        {
+            if (activity.MinLat is null || activity.MaxLat is null ||
+                activity.MinLng is null || activity.MaxLng is null)
+                return null;
+
+            return new BoundingBoxInfoDto
+            {
+                MinLat = activity.MinLat.Value,
+                MaxLat = activity.MaxLat.Value,
+                MinLng = activity.MinLng.Value,
+                MaxLng = activity.MaxLng.Value,
+                CenterLat = (activity.MinLat.Value + activity.MaxLat.Value) / 2.0,
+                CenterLng = (activity.MinLng.Value + activity.MaxLng.Value) / 2.0,
+                Width = activity.MaxLng.Value - activity.MinLng.Value,
+                Height = activity.MaxLat.Value - activity.MinLat.Value
+            };
         }
     }
 }

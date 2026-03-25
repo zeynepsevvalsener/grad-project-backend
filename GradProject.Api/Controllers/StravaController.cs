@@ -1,5 +1,3 @@
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using GradProject.Application.DTOs.Common;
@@ -8,9 +6,8 @@ using GradProject.Infrastructure.Services;
 
 namespace GradProject.Api.Controllers
 {
-    [ApiController]
     [Route("api/v1/strava")]
-    public class StravaController : ControllerBase
+    public class StravaController : ApiControllerBase
     {
         private readonly StravaApiService _stravaApiService;
         private readonly IRunActivityService _runActivityService;
@@ -26,11 +23,39 @@ namespace GradProject.Api.Controllers
             _stravaService = stravaService;
         }
 
+        /// <summary>
+        /// SPA / mobile: call with Bearer token, then set <c>window.location.href = authorizeUrl</c>.
+        /// (A plain <c>fetch</c> to the redirect-based <see cref="Connect"/> endpoint does not open Strava in the browser.)
+        /// </summary>
+        [HttpGet("authorize-url")]
+        [Authorize]
+        public IActionResult GetAuthorizeUrl()
+        {
+            if (!_stravaApiService.IsOAuthConfigured)
+            {
+                return StatusCode(503, new
+                {
+                    message = "Strava OAuth yapılandırılmadı. STRAVA_CLIENT_ID, STRAVA_CLIENT_SECRET ve STRAVA_REDIRECT_URI ortam değişkenlerini ayarlayın.",
+                    code = "strava_oauth_not_configured"
+                });
+            }
+
+            var userId = GetUserIdOrThrow();
+            var url = _stravaApiService.GetAuthorizeUrl(userId.ToString());
+            return Ok(new { authorizeUrl = url });
+        }
+
+        /// <summary>Legacy: full-page redirect when opened in the browser (must include <c>userId</c> query). Prefer <c>authorize-url</c> + JWT from SPAs.</summary>
         [HttpGet("connect")]
         public IActionResult Connect([FromQuery] string userId)
         {
             if (string.IsNullOrEmpty(userId))
                 return BadRequest("userId zorunlu");
+
+            if (!_stravaApiService.IsOAuthConfigured)
+            {
+                return StatusCode(503, "Strava OAuth yapılandırılmadı (STRAVA_CLIENT_ID / STRAVA_CLIENT_SECRET / STRAVA_REDIRECT_URI).");
+            }
 
             var url = _stravaApiService.GetAuthorizeUrl(userId);
             return Redirect(url);
@@ -110,15 +135,5 @@ namespace GradProject.Api.Controllers
             return Ok(recentRuns);
         }
 
-        private int GetUserIdOrThrow()
-        {
-            var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub)
-                      ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
-
-            if (string.IsNullOrWhiteSpace(sub) || !int.TryParse(sub, out var userId))
-                throw new UnauthorizedAccessException("Invalid token.");
-
-            return userId;
-        }
     }
 }

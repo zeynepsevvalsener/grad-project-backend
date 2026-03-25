@@ -7,7 +7,11 @@ namespace GradProject.Domain.Entities
     /// </summary>
     public class Territory
     {
+        /// <summary>Surrogate key (internal FKs, claim/defend APIs).</summary>
         public int Id { get; set; }
+
+        /// <summary>Stable public identifier for clients (API <c>id</c>).</summary>
+        public Guid PublicId { get; set; } = Guid.NewGuid();
         public string Name { get; set; } = null!;
         public string? Description { get; set; }
 
@@ -41,7 +45,9 @@ namespace GradProject.Domain.Entities
         // Navigation
         public User? CurrentOwnerUser { get; set; }
         public ICollection<TerritoryUnlockCondition> UnlockConditions { get; set; } = new List<TerritoryUnlockCondition>();
+        /// <summary>Per-user progress (UserTerritoryProgress aggregate; table <c>UserTerritories</c>).</summary>
         public ICollection<UserTerritory> UserTerritories { get; set; } = new List<UserTerritory>();
+        public ICollection<TerritoryCell> TerritoryCells { get; set; } = new List<TerritoryCell>();
         public ICollection<TerritoryOwnershipHistory> OwnershipHistory { get; set; } = new List<TerritoryOwnershipHistory>();
     }
 }
