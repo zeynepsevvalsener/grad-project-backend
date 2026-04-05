@@ -49,6 +49,7 @@ namespace GradProject.Api.Controllers
         }
 
         [HttpPost]
+        [Authorize(Roles = "Admin")]
         public async Task<ActionResult<ChallengeResponseDto>> Create(CreateChallengeRequestDto request, CancellationToken ct)
         {
             var validation = await _createValidator.ValidateAsync(request, ct);
@@ -67,6 +68,7 @@ namespace GradProject.Api.Controllers
         }
 
         [HttpPut("{id:int}")]
+        [Authorize(Roles = "Admin")]
         public async Task<ActionResult<ChallengeResponseDto>> Update(int id, UpdateChallengeRequestDto request, CancellationToken ct)
         {
             var validation = await _updateValidator.ValidateAsync(request, ct);
@@ -85,6 +87,7 @@ namespace GradProject.Api.Controllers
         }
 
         [HttpDelete("{id:int}")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Delete(int id, CancellationToken ct)
         {
             var ok = await _service.DeleteAsync(id, ct);
@@ -103,16 +106,12 @@ namespace GradProject.Api.Controllers
             }
             catch (KeyNotFoundException ex)
             {
-                // TODO: use localization when HLN-6 ready
                 return NotFound(new { message = ex.Message });
             }
             catch (InvalidOperationException ex)
             {
-                // TODO: use localization when HLN-6 ready
                 return BadRequest(new { message = ex.Message });
             }
         }
-
     }
 }
-
