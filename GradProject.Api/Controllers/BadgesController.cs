@@ -38,7 +38,6 @@ namespace GradProject.Api.Controllers
             return Ok(items);
         }
 
-        /// <summary>Returns the current user's earned badges (newest first).</summary>
         [HttpGet("me")]
         public async Task<ActionResult<IReadOnlyList<UserBadgeResponseDto>>> GetMyBadges(CancellationToken ct)
         {
@@ -55,6 +54,7 @@ namespace GradProject.Api.Controllers
         }
 
         [HttpPost]
+        [Authorize(Roles = "Admin")]
         public async Task<ActionResult<BadgeResponseDto>> Create(CreateBadgeRequestDto request, CancellationToken ct)
         {
             var validation = await _createValidator.ValidateAsync(request, ct);
@@ -73,6 +73,7 @@ namespace GradProject.Api.Controllers
         }
 
         [HttpPut("{id:int}")]
+        [Authorize(Roles = "Admin")]
         public async Task<ActionResult<BadgeResponseDto>> Update(int id, UpdateBadgeRequestDto request, CancellationToken ct)
         {
             var validation = await _updateValidator.ValidateAsync(request, ct);
@@ -91,12 +92,11 @@ namespace GradProject.Api.Controllers
         }
 
         [HttpDelete("{id:int}")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Delete(int id, CancellationToken ct)
         {
             var ok = await _service.DeleteAsync(id, ct);
             return ok ? NoContent() : NotFound();
         }
-
     }
 }
-

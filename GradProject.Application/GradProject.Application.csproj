@@ -1,18 +1,18 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
+	<PropertyGroup>
+		<TargetFramework>net8.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+	</PropertyGroup>
 
-  <ItemGroup>
-    <PackageReference Include="FluentValidation" Version="12.1.1" />
-    <PackageReference Include="NetTopologySuite.IO.GeoJSON" Version="4.0.0" />
-  </ItemGroup>
+	<ItemGroup>
+		<PackageReference Include="FluentValidation" Version="12.1.1" />
+		<PackageReference Include="NetTopologySuite.IO.GeoJSON" Version="4.0.0" />
+	</ItemGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="..\GradProject.Domain\GradProject.Domain.csproj" />
-  </ItemGroup>
+	<ItemGroup>
+		<ProjectReference Include="..\GradProject.Domain\GradProject.Domain.csproj" />
+	</ItemGroup>
 
 </Project>
