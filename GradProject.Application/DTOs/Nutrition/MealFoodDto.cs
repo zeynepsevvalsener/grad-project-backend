@@ -8,5 +8,7 @@ namespace GradProject.Application.DTOs.Nutrition
         public decimal Quantity { get; set; }
         public string Unit { get; set; } = null!;
         public decimal PortionG { get; set; }
+        public string? DisplayName { get; set; }
+
     }
 }

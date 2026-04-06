@@ -9,6 +9,7 @@ namespace GradProject.Application.DTOs.Nutrition
         public string FoodName { get; set; } = null!;
         public DateTime ConsumedAt { get; set; }
         public decimal PortionG { get; set; }
+        public string? DisplayName { get; set; }
 
         // Meal bilgisi
         public int? MealId { get; set; }

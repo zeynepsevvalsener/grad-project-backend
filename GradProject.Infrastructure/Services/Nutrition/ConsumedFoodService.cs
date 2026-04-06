@@ -1,4 +1,5 @@
 ﻿using GradProject.Application.DTOs.Nutrition;
+using GradProject.Application.Interfaces;
 using GradProject.Application.Interfaces.Nutrition;
 using GradProject.Domain.Entities;
 using GradProject.Domain.Enums;
@@ -11,11 +12,13 @@ namespace GradProject.Infrastructure.Services.Nutrition
     {
         private readonly AppDbContext _db;
         private readonly IDailyIntakeAggregationService _dailyAgg;
+        private readonly ICurrentLanguage _currentLanguage;
 
-        public ConsumedFoodService(AppDbContext db, IDailyIntakeAggregationService dailyAgg)
+        public ConsumedFoodService(AppDbContext db, IDailyIntakeAggregationService dailyAgg, ICurrentLanguage currentLanguage)
         {
             _db = db;
             _dailyAgg = dailyAgg;
+            _currentLanguage = currentLanguage;
         }
 
         public async Task<IReadOnlyList<ConsumedFoodResponseDto>> GetByDateAsync(
@@ -23,6 +26,7 @@ namespace GradProject.Infrastructure.Services.Nutrition
         {
             var start = date.ToDateTime(TimeOnly.MinValue);
             var end = start.AddDays(1);
+            var lang = (_currentLanguage.Value ?? "en").Substring(0, 2).ToLowerInvariant();
 
             var items = await _db.ConsumedFoods
                 .AsNoTracking()
@@ -33,13 +37,15 @@ namespace GradProject.Infrastructure.Services.Nutrition
                     Id = x.Id,
                     FoodId = x.FoodId,
                     FoodName = x.Food.Name,
+                    DisplayName = _db.FoodAliases
+                        .Where(a => a.FoodId == x.FoodId && a.Language == lang)
+                        .Select(a => a.Alias)
+                        .FirstOrDefault() ?? x.Food.Name,
                     ConsumedAt = x.ConsumedAt,
                     PortionG = x.PortionG,
                     MealId = x.MealId,
                     MealType = x.Meal != null ? x.Meal.MealType : (MealType?)null,
-                    MealTypeName = x.Meal != null
-                        ? x.Meal.MealType.ToString()
-                        : null
+                    MealTypeName = x.Meal != null ? x.Meal.MealType.ToString() : null
                 })
                 .ToListAsync(ct);
 
@@ -55,8 +61,8 @@ namespace GradProject.Infrastructure.Services.Nutrition
 
             var consumedAt = request.ConsumedAt ?? DateTime.UtcNow;
             var date = DateOnly.FromDateTime(consumedAt);
+            var lang = (_currentLanguage.Value ?? "en").Substring(0, 2).ToLowerInvariant();
 
-            // O gün + o MealType için Meal var mı, yoksa oluştur
             var meal = await FindOrCreateMealAsync(userId, request.MealType, consumedAt, date, ct);
 
             var entity = new ConsumedFood
@@ -70,7 +76,6 @@ namespace GradProject.Infrastructure.Services.Nutrition
 
             _db.ConsumedFoods.Add(entity);
 
-            // MealFood kaydı da oluştur (Meal içeriğini senkron tut)
             var food = await _db.Foods.AsNoTracking()
                 .FirstAsync(f => f.Id == request.FoodId, ct);
 
@@ -85,11 +90,18 @@ namespace GradProject.Infrastructure.Services.Nutrition
             await _db.SaveChangesAsync(ct);
             await _dailyAgg.AggregateDailyIntakeAsync(userId, date, ct);
 
+            var alias = await _db.FoodAliases
+                .AsNoTracking()
+                .Where(a => a.FoodId == request.FoodId && a.Language == lang)
+                .Select(a => a.Alias)
+                .FirstOrDefaultAsync(ct);
+
             return new ConsumedFoodResponseDto
             {
                 Id = entity.Id,
                 FoodId = entity.FoodId,
                 FoodName = food.Name,
+                DisplayName = alias ?? food.Name,
                 ConsumedAt = entity.ConsumedAt,
                 PortionG = entity.PortionG,
                 MealId = meal.Id,
@@ -109,11 +121,11 @@ namespace GradProject.Infrastructure.Services.Nutrition
             if (entity is null)
                 return null;
 
+            var lang = (_currentLanguage.Value ?? "en").Substring(0, 2).ToLowerInvariant();
             var oldDate = DateOnly.FromDateTime(entity.ConsumedAt);
             var newConsumedAt = request.ConsumedAt ?? entity.ConsumedAt;
             var newDate = DateOnly.FromDateTime(newConsumedAt);
 
-            // MealType değişti mi veya tarih değişti mi?
             var currentMealType = entity.Meal?.MealType;
             var requestedMealType = request.MealType ?? currentMealType;
 
@@ -122,19 +134,16 @@ namespace GradProject.Infrastructure.Services.Nutrition
 
             if (mealNeedsReassign && requestedMealType.HasValue)
             {
-                // Eski MealFood kaydını sil
                 var oldMealFood = await _db.MealFoods
                     .FirstOrDefaultAsync(mf => mf.MealId == entity.MealId && mf.FoodId == entity.FoodId, ct);
                 if (oldMealFood != null)
                     _db.MealFoods.Remove(oldMealFood);
 
-                // Yeni Meal bul veya oluştur
                 var newMeal = await FindOrCreateMealAsync(
                     userId, requestedMealType.Value, newConsumedAt, newDate, ct);
 
                 entity.MealId = newMeal.Id;
 
-                // Yeni MealFood ekle
                 _db.MealFoods.Add(new MealFood
                 {
                     MealId = newMeal.Id,
@@ -145,13 +154,10 @@ namespace GradProject.Infrastructure.Services.Nutrition
             }
             else if (entity.MealId.HasValue)
             {
-                // Aynı meal'da kaldı, sadece quantity güncelle
                 var mealFood = await _db.MealFoods
                     .FirstOrDefaultAsync(mf => mf.MealId == entity.MealId && mf.FoodId == entity.FoodId, ct);
                 if (mealFood != null)
-                {
                     mealFood.Quantity = request.PortionG;
-                }
             }
 
             entity.PortionG = request.PortionG;
@@ -163,17 +169,23 @@ namespace GradProject.Infrastructure.Services.Nutrition
             if (oldDate != newDate)
                 await _dailyAgg.AggregateDailyIntakeAsync(userId, oldDate, ct);
 
-            // Güncel Meal bilgisini yükle
             var updatedMeal = entity.MealId.HasValue
                 ? await _db.Meals.AsNoTracking()
                     .FirstOrDefaultAsync(m => m.Id == entity.MealId, ct)
                 : null;
+
+            var updateAlias = await _db.FoodAliases
+                .AsNoTracking()
+                .Where(a => a.FoodId == entity.FoodId && a.Language == lang)
+                .Select(a => a.Alias)
+                .FirstOrDefaultAsync(ct);
 
             return new ConsumedFoodResponseDto
             {
                 Id = entity.Id,
                 FoodId = entity.FoodId,
                 FoodName = entity.Food.Name,
+                DisplayName = updateAlias ?? entity.Food.Name,
                 ConsumedAt = entity.ConsumedAt,
                 PortionG = entity.PortionG,
                 MealId = entity.MealId,
@@ -193,7 +205,6 @@ namespace GradProject.Infrastructure.Services.Nutrition
 
             var date = DateOnly.FromDateTime(entity.ConsumedAt);
 
-            // Bağlı MealFood kaydını da temizle
             if (entity.MealId.HasValue)
             {
                 var mealFood = await _db.MealFoods
@@ -209,9 +220,6 @@ namespace GradProject.Infrastructure.Services.Nutrition
             return true;
         }
 
-        // -------------------------------------------------------------------
-        // Yardımcı: O gün + MealType için Meal bul, yoksa oluştur
-        // -------------------------------------------------------------------
         private async Task<Meal> FindOrCreateMealAsync(
             int userId, MealType mealType, DateTime loggedAt, DateOnly date, CancellationToken ct)
         {

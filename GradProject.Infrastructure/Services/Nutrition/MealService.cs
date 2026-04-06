@@ -1,4 +1,5 @@
 using GradProject.Application.DTOs.Nutrition;
+using GradProject.Application.Interfaces;
 using GradProject.Application.Interfaces.Nutrition;
 using GradProject.Domain.Entities;
 using GradProject.Infrastructure.Persistence;
@@ -10,6 +11,7 @@ namespace GradProject.Infrastructure.Services.Nutrition
     {
         private readonly AppDbContext _db;
         private readonly IDailyIntakeAggregationService _dailyAgg;
+        private readonly ICurrentLanguage _currentLanguage;
 
         private static readonly Dictionary<string, decimal> UnitToGramMultiplier = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -44,16 +46,18 @@ namespace GradProject.Infrastructure.Services.Nutrition
             "adet", "tane"
         };
 
-        public MealService(AppDbContext db, IDailyIntakeAggregationService dailyAgg)
+        public MealService(AppDbContext db, IDailyIntakeAggregationService dailyAgg, ICurrentLanguage currentLanguage)
         {
             _db = db;
             _dailyAgg = dailyAgg;
+            _currentLanguage = currentLanguage;
         }
 
         public async Task<IReadOnlyList<MealResponseDto>> GetByDateAsync(int userId, DateOnly date, CancellationToken ct = default)
         {
             var start = date.ToDateTime(TimeOnly.MinValue);
             var end = start.AddDays(1);
+            var lang = (_currentLanguage.Value ?? "en").Substring(0, 2).ToLowerInvariant();
 
             var meals = await _db.Meals
                 .AsNoTracking()
@@ -63,11 +67,20 @@ namespace GradProject.Infrastructure.Services.Nutrition
                 .OrderByDescending(m => m.LoggedAt)
                 .ToListAsync(ct);
 
-            return meals.Select(m => MapToResponseDto(m)).ToList();
+            var allFoodIds = meals.SelectMany(m => m.MealFoods.Select(mf => mf.FoodId)).Distinct().ToList();
+            var aliasMap = await _db.FoodAliases
+                .AsNoTracking()
+                .Where(a => allFoodIds.Contains(a.FoodId) && a.Language == lang)
+                .GroupBy(a => a.FoodId)
+                .ToDictionaryAsync(g => g.Key, g => g.First().Alias, ct);
+
+            return meals.Select(m => MapToResponseDto(m, aliasMap)).ToList();
         }
 
         public async Task<MealResponseDto?> GetByIdAsync(int userId, int mealId, CancellationToken ct = default)
         {
+            var lang = (_currentLanguage.Value ?? "en").Substring(0, 2).ToLowerInvariant();
+
             var meal = await _db.Meals
                 .AsNoTracking()
                 .Where(m => m.Id == mealId && m.UserId == userId)
@@ -75,11 +88,22 @@ namespace GradProject.Infrastructure.Services.Nutrition
                     .ThenInclude(mf => mf.Food)
                 .FirstOrDefaultAsync(ct);
 
-            return meal == null ? null : MapToResponseDto(meal);
+            if (meal == null) return null;
+
+            var foodIds = meal.MealFoods.Select(mf => mf.FoodId).ToList();
+            var aliasMap = await _db.FoodAliases
+                .AsNoTracking()
+                .Where(a => foodIds.Contains(a.FoodId) && a.Language == lang)
+                .GroupBy(a => a.FoodId)
+                .ToDictionaryAsync(g => g.Key, g => g.First().Alias, ct);
+
+            return MapToResponseDto(meal, aliasMap);
         }
 
         public async Task<MealResponseDto> CreateAsync(int userId, CreateMealRequestDto request, CancellationToken ct = default)
         {
+            var lang = (_currentLanguage.Value ?? "en").Substring(0, 2).ToLowerInvariant();
+
             if (request.Foods != null && request.Foods.Any())
             {
                 var foodIds = request.Foods.Select(f => f.FoodId).Distinct().ToList();
@@ -93,7 +117,6 @@ namespace GradProject.Infrastructure.Services.Nutrition
                     throw new KeyNotFoundException($"Food(s) not found: {string.Join(", ", missingFoods)}");
             }
 
-            // YENÝ: Ayný gün + ayný MealType için mevcut Meal'ý bul
             var date = DateOnly.FromDateTime(request.LoggedAt);
             var start = date.ToDateTime(TimeOnly.MinValue);
             var end = start.AddDays(1);
@@ -122,7 +145,6 @@ namespace GradProject.Infrastructure.Services.Nutrition
             }
             else
             {
-                // Mevcut Meal'ý güncelle
                 meal.UpdatedAt = DateTime.UtcNow;
                 if (!string.IsNullOrWhiteSpace(request.RawText))
                     meal.RawText = request.RawText;
@@ -170,17 +192,25 @@ namespace GradProject.Infrastructure.Services.Nutrition
                     .ThenInclude(mf => mf.Food)
                 .FirstAsync(m => m.Id == meal.Id, ct);
 
-            return MapToResponseDto(updatedMeal);
+            var allFoodIds = updatedMeal.MealFoods.Select(mf => mf.FoodId).ToList();
+            var aliasMap = await _db.FoodAliases
+                .AsNoTracking()
+                .Where(a => allFoodIds.Contains(a.FoodId) && a.Language == lang)
+                .GroupBy(a => a.FoodId)
+                .ToDictionaryAsync(g => g.Key, g => g.First().Alias, ct);
+
+            return MapToResponseDto(updatedMeal, aliasMap);
         }
 
         public async Task<MealResponseDto?> UpdateAsync(int userId, int mealId, UpdateMealRequestDto request, CancellationToken ct = default)
         {
+            var lang = (_currentLanguage.Value ?? "en").Substring(0, 2).ToLowerInvariant();
+
             var meal = await _db.Meals
                 .Include(m => m.MealFoods)
                 .FirstOrDefaultAsync(m => m.Id == mealId && m.UserId == userId, ct);
 
-            if (meal == null)
-                return null;
+            if (meal == null) return null;
 
             var oldDate = DateOnly.FromDateTime(meal.LoggedAt);
 
@@ -197,23 +227,19 @@ namespace GradProject.Infrastructure.Services.Nutrition
                     throw new KeyNotFoundException($"Food(s) not found: {string.Join(", ", missingFoods)}");
             }
 
-            //  NEW: Bu meal’a baðlý eski consumedfood kayýtlarýný sil (yetim kalmasýn)
             var oldLinkedConsumedFoods = await _db.ConsumedFoods
                 .Where(cf => cf.UserId == userId && cf.MealId == meal.Id)
                 .ToListAsync(ct);
             _db.ConsumedFoods.RemoveRange(oldLinkedConsumedFoods);
 
-            // Update meal properties
             meal.MealType = request.MealType;
             meal.LoggedAt = request.LoggedAt;
             meal.RawText = request.RawText;
             meal.Notes = request.Notes;
             meal.UpdatedAt = DateTime.UtcNow;
 
-            // Remove old MealFoods
             _db.MealFoods.RemoveRange(meal.MealFoods);
 
-            // Add new MealFoods + new ConsumedFoods
             if (request.Foods != null && request.Foods.Any())
             {
                 var foods = await _db.Foods
@@ -235,16 +261,14 @@ namespace GradProject.Infrastructure.Services.Nutrition
                         Unit = foodDto.Unit
                     });
 
-                    //  NEW: MealId set edildi
-                    var consumedFood = new ConsumedFood
+                    _db.ConsumedFoods.Add(new ConsumedFood
                     {
                         UserId = userId,
                         FoodId = foodDto.FoodId,
                         PortionG = portionG,
                         ConsumedAt = request.LoggedAt,
                         MealId = meal.Id
-                    };
-                    _db.ConsumedFoods.Add(consumedFood);
+                    });
                 }
 
                 _db.MealFoods.AddRange(mealFoods);
@@ -254,7 +278,6 @@ namespace GradProject.Infrastructure.Services.Nutrition
 
             var newDate = DateOnly.FromDateTime(meal.LoggedAt);
             await _dailyAgg.AggregateDailyIntakeAsync(userId, newDate, ct);
-
             if (oldDate != newDate)
                 await _dailyAgg.AggregateDailyIntakeAsync(userId, oldDate, ct);
 
@@ -263,7 +286,14 @@ namespace GradProject.Infrastructure.Services.Nutrition
                     .ThenInclude(mf => mf.Food)
                 .FirstAsync(m => m.Id == meal.Id, ct);
 
-            return MapToResponseDto(updatedMeal);
+            var allFoodIds = updatedMeal.MealFoods.Select(mf => mf.FoodId).ToList();
+            var aliasMap = await _db.FoodAliases
+                .AsNoTracking()
+                .Where(a => allFoodIds.Contains(a.FoodId) && a.Language == lang)
+                .GroupBy(a => a.FoodId)
+                .ToDictionaryAsync(g => g.Key, g => g.First().Alias, ct);
+
+            return MapToResponseDto(updatedMeal, aliasMap);
         }
 
         public async Task<bool> DeleteAsync(int userId, int mealId, CancellationToken ct = default)
@@ -272,12 +302,10 @@ namespace GradProject.Infrastructure.Services.Nutrition
                 .Include(m => m.MealFoods)
                 .FirstOrDefaultAsync(m => m.Id == mealId && m.UserId == userId, ct);
 
-            if (meal == null)
-                return false;
+            if (meal == null) return false;
 
             var date = DateOnly.FromDateTime(meal.LoggedAt);
 
-            //  NEW: önce meal’a baðlý consumedfood kayýtlarýný sil (Restrict FK yüzünden þart)
             var linkedConsumedFoods = await _db.ConsumedFoods
                 .Where(cf => cf.UserId == userId && cf.MealId == meal.Id)
                 .ToListAsync(ct);
@@ -285,8 +313,6 @@ namespace GradProject.Infrastructure.Services.Nutrition
 
             _db.Meals.Remove(meal);
             await _db.SaveChangesAsync(ct);
-
-            //  NEW: delete sonrasý daily summary güncellensin
             await _dailyAgg.AggregateDailyIntakeAsync(userId, date, ct);
 
             return true;
@@ -312,7 +338,7 @@ namespace GradProject.Infrastructure.Services.Nutrition
             return Math.Round(quantity * 100m, 2);
         }
 
-        private static MealResponseDto MapToResponseDto(Meal meal)
+        private static MealResponseDto MapToResponseDto(Meal meal, Dictionary<int, string> aliasMap)
         {
             var mealTypeName = meal.MealType switch
             {
@@ -322,17 +348,18 @@ namespace GradProject.Infrastructure.Services.Nutrition
                 Domain.Enums.MealType.SNACK => "Snack",
                 _ => meal.MealType.ToString()
             };
+
             var foods = meal.MealFoods.Select(mf =>
             {
-                //var portionG = ConvertToGrams(mf.Quantity, mf.Unit, mf.Food.DefaultPortionG);
-
-                var portionG = mf.Food.DefaultPortionG; //eklendi
+                var portionG = mf.Food.DefaultPortionG;
+                aliasMap.TryGetValue(mf.FoodId, out var displayName);
 
                 return new MealFoodResponseDto
                 {
                     Id = mf.Id,
                     FoodId = mf.FoodId,
                     FoodName = mf.Food.Name,
+                    DisplayName = displayName ?? mf.Food.Name,
                     Quantity = mf.Quantity,
                     Unit = mf.Unit,
                     PortionG = portionG

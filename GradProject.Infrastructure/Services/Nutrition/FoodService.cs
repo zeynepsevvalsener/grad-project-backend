@@ -1,5 +1,6 @@
 using GradProject.Application.DTOs.Nutrition;
 using GradProject.Application.DTOs.Nutrition.Admin;
+using GradProject.Application.Interfaces;
 using GradProject.Application.Interfaces.Nutrition;
 using GradProject.Domain.Entities;
 using GradProject.Infrastructure.Persistence;
@@ -12,11 +13,13 @@ namespace GradProject.Infrastructure.Services.Nutrition
     {
         private readonly AppDbContext _db;
         private readonly IMemoryCache _cache;
+        private readonly ICurrentLanguage _currentLanguage;
 
-        public FoodService(AppDbContext db, IMemoryCache cache)
+        public FoodService(AppDbContext db, IMemoryCache cache, ICurrentLanguage currentLanguage)
         {
             _db = db;
             _cache = cache;
+            _currentLanguage = currentLanguage;
         }
 
         public async Task<IReadOnlyList<FoodResponseDto>> GetAllAsync(CancellationToken ct = default)
@@ -38,7 +41,18 @@ namespace GradProject.Infrastructure.Services.Nutrition
                 .AsNoTracking()
                 .FirstOrDefaultAsync(f => f.Id == id, ct);
 
-            return food is null ? null : MapToDto(food);
+            if (food is null) return null;
+
+            var lang = (_currentLanguage.Value ?? "en").Substring(0, 2).ToLowerInvariant();
+            var alias = await _db.FoodAliases
+                .AsNoTracking()
+                .Where(a => a.FoodId == id && a.Language == lang)
+                .Select(a => a.Alias)
+                .FirstOrDefaultAsync(ct);
+
+            var dto = MapToDto(food);
+            dto.DisplayName = alias ?? food.Name;
+            return dto;
         }
 
         public async Task<FoodResponseDto> CreateAsync(CreateFoodRequestDto request, CancellationToken ct = default)
@@ -74,8 +88,7 @@ namespace GradProject.Infrastructure.Services.Nutrition
         public async Task<FoodResponseDto?> UpdateAsync(int id, UpdateFoodRequestDto request, CancellationToken ct = default)
         {
             var entity = await _db.Foods.FirstOrDefaultAsync(f => f.Id == id, ct);
-            if (entity is null)
-                return null;
+            if (entity is null) return null;
 
             var newName = request.Name.Trim();
 
@@ -107,8 +120,7 @@ namespace GradProject.Infrastructure.Services.Nutrition
         public async Task<bool> DeleteAsync(int id, CancellationToken ct = default)
         {
             var entity = await _db.Foods.FirstOrDefaultAsync(f => f.Id == id, ct);
-            if (entity is null)
-                return false;
+            if (entity is null) return false;
 
             _db.Foods.Remove(entity);
             await _db.SaveChangesAsync(ct);
@@ -167,8 +179,7 @@ namespace GradProject.Infrastructure.Services.Nutrition
         public async Task<FoodResponseDto?> AdminUpdateAsync(int id, AdminUpdateFoodRequestDto request, CancellationToken ct = default)
         {
             var entity = await _db.Foods.FirstOrDefaultAsync(f => f.Id == id, ct);
-            if (entity is null)
-                return null;
+            if (entity is null) return null;
 
             if (request.Name is not null)
             {
@@ -193,7 +204,6 @@ namespace GradProject.Infrastructure.Services.Nutrition
             if (request.SodiumMg is not null) entity.SodiumMg = request.SodiumMg.Value;
             if (request.DefaultPortionG is not null) entity.DefaultPortionG = request.DefaultPortionG.Value;
 
-            // Aliases geldiyse mevcut tüm alias'larý sil, yenilerini ekle
             if (request.Aliases is not null)
             {
                 var existing = await _db.FoodAliases
@@ -256,20 +266,20 @@ namespace GradProject.Infrastructure.Services.Nutrition
             var alias = await _db.FoodAliases
                 .FirstOrDefaultAsync(a => a.Id == aliasId && a.FoodId == foodId, ct);
 
-            if (alias is null)
-                return false;
+            if (alias is null) return false;
 
             _db.FoodAliases.Remove(alias);
             await _db.SaveChangesAsync(ct);
             return true;
         }
 
-        
+        // Mapper
 
         private static FoodResponseDto MapToDto(Food f) => new()
         {
             Id = f.Id,
             Name = f.Name,
+            DisplayName = f.Name,
             Category = f.Category,
             Source = f.Source,
             Kcal = f.Kcal,
