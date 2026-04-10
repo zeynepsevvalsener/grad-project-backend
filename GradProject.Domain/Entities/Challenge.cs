@@ -14,6 +14,16 @@ namespace GradProject.Domain.Entities
         public DateTime EndDate { get; set; }
         public int RewardPoints { get; set; }
         public bool IsActive { get; set; }
+
+        /// <summary>True when created via user-facing custom challenge API (not admin seed).</summary>
+        public bool IsCustom { get; set; }
+
+        /// <summary>Creator user id for custom challenges; null for system/admin challenges.</summary>
+        public int? CreatedByUserId { get; set; }
+
+        public DateTime CreatedAtUtc { get; set; }
+
+        public User? CreatedByUser { get; set; }
     }
 }
 

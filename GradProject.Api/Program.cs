@@ -5,6 +5,7 @@ using GradProject.Api.Middlewares;
 using GradProject.Api.Options;
 using GradProject.Api.Validation;
 using GradProject.Api.HostedServices;
+using GradProject.Application.Configuration;
 using GradProject.Application.Interfaces;
 using GradProject.Application.Interfaces.Gamification;
 using GradProject.Application.Options;
@@ -55,6 +56,9 @@ AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 // JwtOptions (appsettings.json -> "Jwt")
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Jwt"));
+
+builder.Services.Configure<CustomChallengeSettings>(
+    builder.Configuration.GetSection(CustomChallengeSettings.SectionName));
 
 // DI - Services
 builder.Services.AddSingleton<GradProject.Infrastructure.Services.StravaApiService>();

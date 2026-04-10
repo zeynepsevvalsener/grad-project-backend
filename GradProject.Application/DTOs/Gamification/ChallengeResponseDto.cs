@@ -33,6 +33,12 @@ namespace GradProject.Application.DTOs.Gamification
 
         /// <summary>0–100 when participating; otherwise 0.</summary>
         public double ProgressPercent { get; set; }
+
+        public bool IsCustom { get; set; }
+
+        public int? CreatedByUserId { get; set; }
+
+        public DateTime CreatedAtUtc { get; set; }
     }
 }
 

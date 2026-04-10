@@ -1,10 +1,13 @@
+using GradProject.Application.Configuration;
 using GradProject.Application.DTOs.Gamification;
+using GradProject.Application.Exceptions;
 using GradProject.Application.Interfaces.Gamification;
 using GradProject.Domain.Entities;
 using GradProject.Domain.Enums;
 using GradProject.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Options;
 
 namespace GradProject.Infrastructure.Services.Gamification
 {
@@ -12,11 +15,16 @@ namespace GradProject.Infrastructure.Services.Gamification
     {
         private readonly AppDbContext _db;
         private readonly IMemoryCache _cache;
+        private readonly IOptions<CustomChallengeSettings> _customChallengeSettings;
 
-        public ChallengeService(AppDbContext db, IMemoryCache cache)
+        public ChallengeService(
+            AppDbContext db,
+            IMemoryCache cache,
+            IOptions<CustomChallengeSettings> customChallengeSettings)
         {
             _db = db;
             _cache = cache;
+            _customChallengeSettings = customChallengeSettings;
         }
 
         public async Task<IReadOnlyList<ChallengeResponseDto>> GetAllAsync(int? userId = null, CancellationToken ct = default)
@@ -75,7 +83,79 @@ namespace GradProject.Infrastructure.Services.Gamification
                 StartDate = request.StartDate,
                 EndDate = request.EndDate,
                 RewardPoints = request.RewardPoints,
-                IsActive = request.IsActive
+                IsActive = request.IsActive,
+                IsCustom = false,
+                CreatedByUserId = null,
+                CreatedAtUtc = DateTime.UtcNow
+            };
+
+            _db.Challenges.Add(challenge);
+            await _db.SaveChangesAsync(ct);
+            _cache.Remove("challenges:all");
+            _cache.Remove("challenges:active");
+
+            var createdChallenge = await _db.Challenges
+                .AsNoTracking()
+                .FirstAsync(c => c.Id == challenge.Id, ct);
+
+            return MapToResponseDto(createdChallenge);
+        }
+
+        public async Task<ChallengeResponseDto> CreateCustomAsync(
+            int creatorUserId,
+            CreateCustomChallengeRequestDto request,
+            CancellationToken ct = default)
+        {
+            var settings = _customChallengeSettings.Value;
+            var now = DateTime.UtcNow;
+            var windowStart = now.AddHours(-24);
+            var recentCount = await _db.Challenges
+                .CountAsync(
+                    c => c.IsCustom &&
+                         c.CreatedByUserId == creatorUserId &&
+                         c.CreatedAtUtc >= windowStart,
+                    ct);
+
+            if (recentCount >= settings.MaxCreatesPer24Hours)
+            {
+                throw new ChallengeCreationRateLimitExceededException(
+                    $"You can create at most {settings.MaxCreatesPer24Hours} custom challenges per 24 hours.");
+            }
+
+            var start = request.StartDate.HasValue ? NormalizeToUtc(request.StartDate.Value) : now;
+            var end = request.EndDate.HasValue
+                ? NormalizeToUtc(request.EndDate.Value)
+                : start.AddDays(settings.DefaultWindowDays);
+
+            if (end <= start)
+                throw new InvalidOperationException("Challenge end must be after start.");
+
+            if (end <= now)
+                throw new InvalidOperationException("Challenge end must be in the future.");
+
+            var (type, metric) = request.GoalType switch
+            {
+                CustomChallengeGoalType.Distance => (ChallengeType.Running, ChallengeMetric.Distance),
+                CustomChallengeGoalType.Calories => (ChallengeType.Nutrition, ChallengeMetric.Calories),
+                _ => throw new InvalidOperationException("Unsupported goal type.")
+            };
+
+            var challenge = new Challenge
+            {
+                Title = request.Title.Trim(),
+                Description = string.IsNullOrWhiteSpace(request.Description)
+                    ? null
+                    : request.Description.Trim(),
+                Type = type,
+                Metric = metric,
+                TargetValue = request.TargetValue,
+                StartDate = start,
+                EndDate = end,
+                RewardPoints = 0,
+                IsActive = true,
+                IsCustom = true,
+                CreatedByUserId = creatorUserId,
+                CreatedAtUtc = DateTime.UtcNow
             };
 
             _db.Challenges.Add(challenge);
@@ -98,6 +178,10 @@ namespace GradProject.Infrastructure.Services.Gamification
             if (challenge == null)
                 return null;
 
+            var preserveCustomMeta = challenge.IsCustom;
+            var preservedCreatedBy = challenge.CreatedByUserId;
+            var preservedCreatedAt = challenge.CreatedAtUtc;
+
             challenge.Title = request.Title;
             challenge.Description = request.Description;
             challenge.Type = request.Type;
@@ -107,6 +191,13 @@ namespace GradProject.Infrastructure.Services.Gamification
             challenge.EndDate = request.EndDate;
             challenge.RewardPoints = request.RewardPoints;
             challenge.IsActive = request.IsActive;
+
+            if (preserveCustomMeta)
+            {
+                challenge.IsCustom = true;
+                challenge.CreatedByUserId = preservedCreatedBy;
+                challenge.CreatedAtUtc = preservedCreatedAt;
+            }
 
             await _db.SaveChangesAsync(ct);
             _cache.Remove("challenges:all");
@@ -149,44 +240,49 @@ namespace GradProject.Infrastructure.Services.Gamification
             if (!challenge.IsActive)
                 throw new InvalidOperationException("Challenge is not active");
 
-            // Check if UserChallenge exists
             var existingUserChallenge = await _db.UserChallenges
                 .Include(uc => uc.Challenge)
                 .FirstOrDefaultAsync(uc => uc.UserId == userId && uc.ChallengeId == challengeId, ct);
 
-            UserChallenge userChallenge;
-
             if (existingUserChallenge != null)
+                return MapToJoinResponseDto(existingUserChallenge);
+
+            var joinNow = DateTime.UtcNow;
+            if (joinNow < challenge.StartDate || joinNow > challenge.EndDate)
+                throw new InvalidOperationException("Challenge is not open for joining (outside start/end window).");
+
+            var now = DateTime.UtcNow;
+            var userChallenge = new UserChallenge
             {
-                // Already joined - return existing record (idempotent)
-                userChallenge = existingUserChallenge;
-            }
-            else
-            {
-                // Create new UserChallenge
-                var now = DateTime.UtcNow;
-                userChallenge = new UserChallenge
-                {
-                    UserId = userId,
-                    ChallengeId = challengeId,
-                    ProgressDistanceMeters = 0,
-                    ProgressCalories = 0,
-                    Completed = false,
-                    JoinedAt = now
-                };
+                UserId = userId,
+                ChallengeId = challengeId,
+                ProgressDistanceMeters = 0,
+                ProgressCalories = 0,
+                Completed = false,
+                JoinedAt = now
+            };
 
-                _db.UserChallenges.Add(userChallenge);
-                await _db.SaveChangesAsync(ct);
+            _db.UserChallenges.Add(userChallenge);
+            await _db.SaveChangesAsync(ct);
 
-                // Reload with Challenge navigation
-                userChallenge = await _db.UserChallenges
-                    .Include(uc => uc.Challenge)
-                    .FirstAsync(uc => uc.Id == userChallenge.Id, ct);
-            }
+            userChallenge = await _db.UserChallenges
+                .Include(uc => uc.Challenge)
+                .FirstAsync(uc => uc.Id == userChallenge.Id, ct);
 
-            // Map to JoinChallengeResponseDto
             return MapToJoinResponseDto(userChallenge);
         }
+
+        /// <summary>
+        /// API contract: challenge dates are UTC. Unspecified kind is treated as UTC (typical JSON deserialization).
+        /// </summary>
+        private static DateTime NormalizeToUtc(DateTime value) =>
+            value.Kind switch
+            {
+                DateTimeKind.Utc => value,
+                DateTimeKind.Local => value.ToUniversalTime(),
+                DateTimeKind.Unspecified => DateTime.SpecifyKind(value, DateTimeKind.Utc),
+                _ => value
+            };
 
         private async Task<IReadOnlyList<ChallengeResponseDto>> CloneDtosAndApplyParticipationAsync(
             List<ChallengeResponseDto> cached,
@@ -247,7 +343,10 @@ namespace GradProject.Infrastructure.Services.Gamification
             StartDate = c.StartDate,
             EndDate = c.EndDate,
             RewardPoints = c.RewardPoints,
-            IsActive = c.IsActive
+            IsActive = c.IsActive,
+            IsCustom = c.IsCustom,
+            CreatedByUserId = c.CreatedByUserId,
+            CreatedAtUtc = c.CreatedAtUtc
         };
 
         private static double ComputeProgressPercent(
@@ -319,7 +418,10 @@ namespace GradProject.Infrastructure.Services.Gamification
                 StartDate = challenge.StartDate,
                 EndDate = challenge.EndDate,
                 RewardPoints = challenge.RewardPoints,
-                IsActive = challenge.IsActive
+                IsActive = challenge.IsActive,
+                IsCustom = challenge.IsCustom,
+                CreatedByUserId = challenge.CreatedByUserId,
+                CreatedAtUtc = challenge.CreatedAtUtc
             };
         }
     }

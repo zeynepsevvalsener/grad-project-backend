@@ -26,6 +26,9 @@ namespace GradProject.Infrastructure.Persistence
 
             var connectionString = configuration.GetConnectionString("Default");
 
+            // Align with runtime model: keep timestamp without time zone in migrations (avoids full-schema timestamptz drift on scaffold).
+            AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
+
             var optionsBuilder = new DbContextOptionsBuilder<AppDbContext>();
             optionsBuilder.UseNpgsql(connectionString, o => o.UseNetTopologySuite());
 
