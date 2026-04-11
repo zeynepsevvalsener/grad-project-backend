@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text.Json;
 
 namespace GradProject.Infrastructure.Services.Strava
@@ -28,6 +29,28 @@ namespace GradProject.Infrastructure.Services.Strava
             public double? AverageHeartRate { get; init; }
             public int? BurnedCalories { get; init; }
             public string? SummaryPolyline { get; init; }
+
+            public double? MaxSpeedMetersPerSecond { get; init; }
+            public double? MaxHeartRate { get; init; }
+            public double? AverageCadenceRpm { get; init; }
+            public double? Kilojoules { get; init; }
+            public double? ElevHighMeters { get; init; }
+            public double? ElevLowMeters { get; init; }
+            public bool HasHeartrate { get; init; }
+            public int? SufferScore { get; init; }
+            public string? DeviceName { get; init; }
+            public string? RouteMetadataJson { get; init; }
+
+            public IReadOnlyList<NormalizedSplit> Splits { get; init; } = Array.Empty<NormalizedSplit>();
+        }
+
+        public sealed class NormalizedSplit
+        {
+            public float DistanceMeters { get; init; }
+            public int MovingTimeSeconds { get; init; }
+            public int ElapsedTimeSeconds { get; init; }
+            public double ElevationDifferenceMeters { get; init; }
+            public double AverageSpeedMetersPerSecond { get; init; }
         }
 
         /// <summary>
@@ -103,11 +126,25 @@ namespace GradProject.Infrastructure.Services.Strava
 
             // --- Summary Polyline: optional, from map.summary_polyline ---
             string? summaryPolyline = null;
-            if (activity.TryGetProperty("map", out var mapElement) && 
-                mapElement.ValueKind == JsonValueKind.Object)
-            {
+            activity.TryGetProperty("map", out var mapElement);
+            if (mapElement.ValueKind == JsonValueKind.Object)
                 summaryPolyline = GetString(mapElement, "summary_polyline");
-            }
+
+            var maxSpeed = GetDoubleNonNegative(activity, "max_speed");
+            double? maxHr = null;
+            if (TryGetNumber(activity, "max_heartrate", out var mxHr) && mxHr > 0)
+                maxHr = mxHr;
+            var avgCadence = GetDoubleNonNegative(activity, "average_cadence");
+            var kilojoules = GetDoubleNonNegative(activity, "kilojoules");
+            double? elevHigh = TryGetSignedDouble(activity, "elev_high");
+            double? elevLow = TryGetSignedDouble(activity, "elev_low");
+            var hasHr = activity.TryGetProperty("has_heartrate", out var hrProp) &&
+                          hrProp.ValueKind == JsonValueKind.True;
+            int? suffer = GetIntPositive(activity, "suffer_score") ?? GetIntPositive(activity, "perceived_exertion");
+            var deviceName = GetString(activity, "device_name");
+
+            var splits = ParseSplitsMetric(activity);
+            var routeMetaJson = BuildRouteMetadataJson(activity, mapElement);
 
             return new NormalizedActivity
             {
@@ -123,8 +160,99 @@ namespace GradProject.Infrastructure.Services.Strava
                 AverageSpeed = averageSpeed,
                 AverageHeartRate = averageHeartRate,
                 BurnedCalories = burnedCalories,
-                SummaryPolyline = summaryPolyline
+                SummaryPolyline = summaryPolyline,
+                MaxSpeedMetersPerSecond = maxSpeed,
+                MaxHeartRate = maxHr,
+                AverageCadenceRpm = avgCadence,
+                Kilojoules = kilojoules,
+                ElevHighMeters = elevHigh,
+                ElevLowMeters = elevLow,
+                HasHeartrate = hasHr,
+                SufferScore = suffer,
+                DeviceName = deviceName,
+                RouteMetadataJson = routeMetaJson,
+                Splits = splits
             };
+        }
+
+        private static IReadOnlyList<NormalizedSplit> ParseSplitsMetric(JsonElement activity)
+        {
+            if (!activity.TryGetProperty("splits_metric", out var arr) || arr.ValueKind != JsonValueKind.Array)
+                return Array.Empty<NormalizedSplit>();
+
+            var list = new List<NormalizedSplit>();
+            foreach (var split in arr.EnumerateArray())
+            {
+                if (split.ValueKind != JsonValueKind.Object)
+                    continue;
+                var dist = GetFloatNonNegative(split, "distance") ?? 0f;
+                var mov = GetIntNonNegative(split, "moving_time") ?? 0;
+                var ela = GetIntNonNegative(split, "elapsed_time") ?? mov;
+                var elDiff = GetDoubleNonNegative(split, "elevation_difference") ?? 0.0;
+                var avgSp = GetDoubleNonNegative(split, "average_speed") ?? 0.0;
+                list.Add(new NormalizedSplit
+                {
+                    DistanceMeters = dist,
+                    MovingTimeSeconds = mov,
+                    ElapsedTimeSeconds = ela,
+                    ElevationDifferenceMeters = elDiff,
+                    AverageSpeedMetersPerSecond = avgSp
+                });
+            }
+
+            return list;
+        }
+
+        private static string? BuildRouteMetadataJson(JsonElement activity, JsonElement mapElement)
+        {
+            var dict = new Dictionary<string, object?>(StringComparer.Ordinal);
+            var tz = GetString(activity, "timezone");
+            if (!string.IsNullOrEmpty(tz))
+                dict["timezone"] = tz;
+            var gear = GetString(activity, "gear_id");
+            if (!string.IsNullOrEmpty(gear))
+                dict["gearId"] = gear;
+            if (activity.TryGetProperty("trainer", out var tr) && tr.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                dict["trainer"] = tr.GetBoolean();
+            if (activity.TryGetProperty("commute", out var co) && co.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                dict["commute"] = co.GetBoolean();
+            if (activity.TryGetProperty("manual", out var man) && man.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                dict["manual"] = man.GetBoolean();
+            if (mapElement.ValueKind == JsonValueKind.Object)
+            {
+                var id = GetString(mapElement, "id");
+                if (!string.IsNullOrEmpty(id))
+                    dict["mapId"] = id;
+            }
+
+            if (dict.Count == 0)
+                return null;
+            return JsonSerializer.Serialize(dict);
+        }
+
+        private static double? TryGetSignedDouble(JsonElement element, string propertyName)
+        {
+            if (!element.TryGetProperty(propertyName, out var prop))
+                return null;
+            if (prop.ValueKind != JsonValueKind.Number)
+                return null;
+            try
+            {
+                return prop.GetDouble();
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static int? GetIntPositive(JsonElement element, string propertyName)
+        {
+            if (!element.TryGetProperty(propertyName, out var prop))
+                return null;
+            if (prop.ValueKind != JsonValueKind.Number || !prop.TryGetInt32(out var v))
+                return null;
+            return v <= 0 ? null : v;
         }
 
         private static string? GetString(JsonElement element, string propertyName)

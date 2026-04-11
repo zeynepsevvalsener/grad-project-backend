@@ -10,6 +10,8 @@ namespace GradProject.Infrastructure.Persistence
         public DbSet<User> Users => Set<User>();
         public DbSet<Profile> Profiles => Set<Profile>();
         public DbSet<RunningActivity> RunningActivities => Set<RunningActivity>();
+        public DbSet<RunningActivitySplit> RunningActivitySplits => Set<RunningActivitySplit>();
+        public DbSet<RunningActivityAnalytics> RunningActivityAnalytics => Set<RunningActivityAnalytics>();
 
         public DbSet<Food> Foods => Set<Food>();
         public DbSet<ConsumedFood> ConsumedFoods => Set<ConsumedFood>();
@@ -129,6 +131,27 @@ namespace GradProject.Infrastructure.Persistence
                 e.Property(r => r.AverageSpeed)
                  .IsRequired();
 
+                e.Property(r => r.MaxSpeedMetersPerSecond);
+                e.Property(r => r.MaxHeartRate);
+                e.Property(r => r.AverageCadenceRpm);
+                e.Property(r => r.Kilojoules);
+                e.Property(r => r.ElevHighMeters);
+                e.Property(r => r.ElevLowMeters);
+                e.Property(r => r.HasHeartrate).HasDefaultValue(false);
+                e.Property(r => r.SufferScore);
+                e.Property(r => r.DeviceName).HasMaxLength(200);
+                e.Property(r => r.RouteMetadataJson).HasColumnType("jsonb");
+
+                e.HasOne(r => r.Analytics)
+                 .WithOne(a => a.RunningActivity)
+                 .HasForeignKey<RunningActivityAnalytics>(a => a.RunningActivityId)
+                 .OnDelete(DeleteBehavior.Cascade);
+
+                e.HasMany(r => r.Splits)
+                 .WithOne(s => s.RunningActivity)
+                 .HasForeignKey(s => s.RunningActivityId)
+                 .OnDelete(DeleteBehavior.Cascade);
+
                 e.Property(r => r.Route)
                  .HasColumnType("geometry(LineString, 4326)");
 
@@ -159,6 +182,33 @@ namespace GradProject.Infrastructure.Persistence
                     t.HasCheckConstraint("CK_RunningActivities_TotalElevationGain_NonNegative", "\"TotalElevationGain\" >= 0");
                     t.HasCheckConstraint("CK_RunningActivities_AverageSpeed_NonNegative", "\"AverageSpeed\" >= 0");
                 });
+            });
+
+            modelBuilder.Entity<RunningActivitySplit>(e =>
+            {
+                e.HasKey(s => s.Id);
+                e.HasIndex(s => new { s.RunningActivityId, s.Ordinal })
+                 .IsUnique()
+                 .HasDatabaseName("IX_RunningActivitySplits_ActivityId_Ordinal");
+                e.Property(s => s.DistanceMeters).IsRequired();
+                e.Property(s => s.MovingTimeSeconds).IsRequired();
+                e.Property(s => s.ElapsedTimeSeconds).IsRequired();
+                e.Property(s => s.ElevationDifferenceMeters).IsRequired();
+                e.Property(s => s.AverageSpeedMetersPerSecond).IsRequired();
+                e.Property(s => s.PaceSecondsPerKm).IsRequired();
+                e.ToTable(t =>
+                {
+                    t.HasCheckConstraint("CK_RunningActivitySplits_DistanceMeters_NonNegative", "\"DistanceMeters\" >= 0");
+                    t.HasCheckConstraint("CK_RunningActivitySplits_PaceSecondsPerKm_NonNegative", "\"PaceSecondsPerKm\" >= 0");
+                });
+            });
+
+            modelBuilder.Entity<RunningActivityAnalytics>(e =>
+            {
+                e.HasKey(a => a.RunningActivityId);
+                e.Property(a => a.ElevationSummaryJson).HasColumnType("jsonb");
+                e.Property(a => a.PerformanceInsightsJson).HasColumnType("jsonb");
+                e.ToTable("RunningActivityAnalytics");
             });
 
             modelBuilder.Entity<Food>(e =>

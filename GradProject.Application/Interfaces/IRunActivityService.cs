@@ -30,7 +30,19 @@ namespace GradProject.Application.Interfaces
         public double TotalElevationGain { get; set; }
         public double AverageSpeed { get; set; }
         public double? AverageHeartRate { get; set; }
+        public double? MaxHeartRate { get; set; }
+        public double? MaxSpeedMetersPerSecond { get; set; }
+        public double? AverageCadenceRpm { get; set; }
+        public double? Kilojoules { get; set; }
+        public double? ElevHighMeters { get; set; }
+        public double? ElevLowMeters { get; set; }
+        public bool HasHeartrate { get; set; }
+        public int? SufferScore { get; set; }
+        public string? DeviceName { get; set; }
+        public string? RouteMetadataJson { get; set; }
         public int? BurnedCalories { get; set; }
         public string Source { get; set; } = null!;
+        public IReadOnlyList<RunActivitySplitDto>? Splits { get; set; }
+        public RunActivityAnalyticsDto? Analytics { get; set; }
     }
 }

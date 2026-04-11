@@ -1,11 +1,12 @@
 using GradProject.Application.DTOs.Common;
+using GradProject.Domain.Entities;
 using GradProject.Application.Interfaces;
 using GradProject.Application.Interfaces.Gamification;
 using GradProject.Application.Interfaces.Geometry;
 using GradProject.Application.Services.Polyline;
-using GradProject.Domain.Entities;
 using GradProject.Infrastructure.Persistence;
 using GradProject.Infrastructure.Services.Geometry;
+using GradProject.Infrastructure.Services.Running;
 using GradProject.Infrastructure.Services.Strava;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -101,6 +102,8 @@ namespace GradProject.Infrastructure.Services
 
                 // Check if activity already exists
                 var existingActivity = await _db.RunningActivities
+                    .Include(r => r.Splits)
+                    .Include(r => r.Analytics)
                     .FirstOrDefaultAsync(
                         r => r.UserId == userId && r.ExternalActivityId == normalized.ExternalId,
                         ct);
@@ -188,6 +191,8 @@ namespace GradProject.Infrastructure.Services
                 // If no Strava connection, return from database
                 IQueryable<RunningActivity> baseQuery = _db.RunningActivities
                     .AsNoTracking()
+                    .Include(r => r.Splits)
+                    .Include(r => r.Analytics)
                     .Where(r => r.UserId == userId);
 
                 // Apply date filtering
@@ -225,6 +230,8 @@ namespace GradProject.Infrastructure.Services
 
             var externalIds = normalized.Select(n => n.ExternalId).ToHashSet();
             var existingByExternalId = await _db.RunningActivities
+                .Include(r => r.Splits)
+                .Include(r => r.Analytics)
                 .Where(r => r.UserId == userId && externalIds.Contains(r.ExternalActivityId))
                 .ToDictionaryAsync(r => r.ExternalActivityId, ct);
 
@@ -305,7 +312,7 @@ namespace GradProject.Infrastructure.Services
             StravaActivityNormalizer.NormalizedActivity normalized,
             DateTime now)
         {
-            return new RunningActivity
+            var activity = new RunningActivity
             {
                 UserId = userId,
                 ExternalActivityId = normalized.ExternalId,
@@ -320,10 +327,41 @@ namespace GradProject.Infrastructure.Services
                 AverageSpeed = normalized.AverageSpeed,
                 AverageHeartRate = normalized.AverageHeartRate,
                 BurnedCalories = normalized.BurnedCalories,
+                MaxHeartRate = normalized.MaxHeartRate,
+                MaxSpeedMetersPerSecond = normalized.MaxSpeedMetersPerSecond,
+                AverageCadenceRpm = normalized.AverageCadenceRpm,
+                Kilojoules = normalized.Kilojoules,
+                ElevHighMeters = normalized.ElevHighMeters,
+                ElevLowMeters = normalized.ElevLowMeters,
+                HasHeartrate = normalized.HasHeartrate,
+                SufferScore = normalized.SufferScore,
+                DeviceName = normalized.DeviceName,
+                RouteMetadataJson = normalized.RouteMetadataJson,
                 Source = "STRAVA",
                 CreatedAt = now,
                 UpdatedAt = now
             };
+
+            var ordinal = 0;
+            foreach (var s in normalized.Splits)
+            {
+                var pace = s.AverageSpeedMetersPerSecond > 1e-6
+                    ? 1000.0 / s.AverageSpeedMetersPerSecond
+                    : 0.0;
+                activity.Splits.Add(new RunningActivitySplit
+                {
+                    Ordinal = ordinal++,
+                    DistanceMeters = s.DistanceMeters,
+                    MovingTimeSeconds = s.MovingTimeSeconds,
+                    ElapsedTimeSeconds = s.ElapsedTimeSeconds,
+                    ElevationDifferenceMeters = s.ElevationDifferenceMeters,
+                    AverageSpeedMetersPerSecond = s.AverageSpeedMetersPerSecond,
+                    PaceSecondsPerKm = pace
+                });
+            }
+
+            activity.Analytics = RunningActivityAnalyticsBuilder.Build(activity);
+            return activity;
         }
 
         /// <summary>
@@ -392,6 +430,41 @@ namespace GradProject.Infrastructure.Services
 
         private static RunActivityDto MapToDto(RunningActivity entity)
         {
+            IReadOnlyList<RunActivitySplitDto>? splits = null;
+            if (entity.Splits is { Count: > 0 })
+            {
+                splits = entity.Splits
+                    .OrderBy(s => s.Ordinal)
+                    .Select(s => new RunActivitySplitDto
+                    {
+                        Ordinal = s.Ordinal,
+                        DistanceMeters = s.DistanceMeters,
+                        MovingTimeSeconds = s.MovingTimeSeconds,
+                        ElapsedTimeSeconds = s.ElapsedTimeSeconds,
+                        ElevationDifferenceMeters = s.ElevationDifferenceMeters,
+                        AverageSpeedMetersPerSecond = s.AverageSpeedMetersPerSecond,
+                        PaceSecondsPerKm = s.PaceSecondsPerKm
+                    })
+                    .ToList();
+            }
+
+            RunActivityAnalyticsDto? analytics = null;
+            if (entity.Analytics != null)
+            {
+                var a = entity.Analytics;
+                analytics = new RunActivityAnalyticsDto
+                {
+                    PaceVariabilitySecondsPerKm = a.PaceVariabilitySecondsPerKm,
+                    FirstHalfPaceSecondsPerKm = a.FirstHalfPaceSecondsPerKm,
+                    SecondHalfPaceSecondsPerKm = a.SecondHalfPaceSecondsPerKm,
+                    IsNegativeSplit = a.IsNegativeSplit,
+                    MovingTimeRatio = a.MovingTimeRatio,
+                    ElevationSummaryJson = a.ElevationSummaryJson,
+                    PerformanceInsightsJson = a.PerformanceInsightsJson,
+                    ComputedAt = a.ComputedAt
+                };
+            }
+
             return new RunActivityDto
             {
                 Id = entity.Id,
@@ -406,8 +479,20 @@ namespace GradProject.Infrastructure.Services
                 TotalElevationGain = entity.TotalElevationGain,
                 AverageSpeed = entity.AverageSpeed,
                 AverageHeartRate = entity.AverageHeartRate,
+                MaxHeartRate = entity.MaxHeartRate,
+                MaxSpeedMetersPerSecond = entity.MaxSpeedMetersPerSecond,
+                AverageCadenceRpm = entity.AverageCadenceRpm,
+                Kilojoules = entity.Kilojoules,
+                ElevHighMeters = entity.ElevHighMeters,
+                ElevLowMeters = entity.ElevLowMeters,
+                HasHeartrate = entity.HasHeartrate,
+                SufferScore = entity.SufferScore,
+                DeviceName = entity.DeviceName,
+                RouteMetadataJson = entity.RouteMetadataJson,
                 BurnedCalories = entity.BurnedCalories,
-                Source = entity.Source
+                Source = entity.Source,
+                Splits = splits,
+                Analytics = analytics
             };
         }
     }

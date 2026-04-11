@@ -30,6 +30,32 @@ namespace GradProject.Domain.Entities
 
         public double? AverageHeartRate { get; set; }
 
+        public double? MaxHeartRate { get; set; }
+
+        public double? MaxSpeedMetersPerSecond { get; set; }
+
+        public double? AverageCadenceRpm { get; set; }
+
+        /// <summary>Strava &quot;kilojoules&quot; (training load energy).</summary>
+        public double? Kilojoules { get; set; }
+
+        /// <summary>Strava activity elev_high (meters).</summary>
+        public double? ElevHighMeters { get; set; }
+
+        /// <summary>Strava activity elev_low (meters).</summary>
+        public double? ElevLowMeters { get; set; }
+
+        public bool HasHeartrate { get; set; }
+
+        /// <summary>Strava relative effort / suffer score when present.</summary>
+        public int? SufferScore { get; set; }
+
+        /// <summary>Optional device name from source.</summary>
+        public string? DeviceName { get; set; }
+
+        /// <summary>JSON (jsonb): timezone, athlete count, gear id, map ids, polyline ids — extensible route metadata.</summary>
+        public string? RouteMetadataJson { get; set; }
+
         public int? BurnedCalories { get; set; }
 
         public string Source { get; set; } = "STRAVA";
@@ -52,5 +78,9 @@ namespace GradProject.Domain.Entities
 
         // Navigation
         public User User { get; set; } = null!;
+
+        public ICollection<RunningActivitySplit> Splits { get; set; } = new List<RunningActivitySplit>();
+
+        public RunningActivityAnalytics? Analytics { get; set; }
     }
 }
