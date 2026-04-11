@@ -197,7 +197,9 @@ public class LeaderboardSchedulerTests
                 TargetValue = 5000,
                 StartDate = DateTime.UtcNow.AddDays(-7),
                 EndDate = DateTime.UtcNow.AddDays(7),
-                RewardPoints = 10
+                RewardPoints = 10,
+                IsActive = true,
+                CreatedAtUtc = DateTime.UtcNow
             });
             db.UserChallenges.Add(new UserChallenge { UserId = id, ChallengeId = id, JoinedAt = DateTime.UtcNow });
         }

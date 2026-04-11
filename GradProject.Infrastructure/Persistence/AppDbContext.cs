@@ -432,6 +432,13 @@ namespace GradProject.Infrastructure.Persistence
                 e.Property(c => c.RewardPoints)
                  .IsRequired();
 
+                e.Property(c => c.IsCustom)
+                 .IsRequired()
+                 .HasDefaultValue(false);
+
+                e.Property(c => c.CreatedAtUtc)
+                 .IsRequired();
+
                 e.HasIndex(c => c.IsActive)
                  .HasDatabaseName("IX_Challenges_IsActive");
 
@@ -440,6 +447,17 @@ namespace GradProject.Infrastructure.Persistence
 
                 e.HasIndex(c => c.EndDate)
                  .HasDatabaseName("IX_Challenges_EndDate");
+
+                e.HasIndex(c => c.CreatedByUserId)
+                 .HasDatabaseName("IX_Challenges_CreatedByUserId");
+
+                e.HasIndex(c => new { c.IsCustom, c.IsActive })
+                 .HasDatabaseName("IX_Challenges_IsCustom_IsActive");
+
+                e.HasOne(c => c.CreatedByUser)
+                 .WithMany()
+                 .HasForeignKey(c => c.CreatedByUserId)
+                 .OnDelete(DeleteBehavior.SetNull);
 
                 e.ToTable(t =>
                 {
